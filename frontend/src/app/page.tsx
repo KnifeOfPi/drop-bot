@@ -141,7 +141,7 @@ export default function Dashboard() {
       {/* Product grid */}
       <section>
         <h2 className="text-sm text-zinc-500 uppercase tracking-wider mb-3">Products</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           {status?.products.map((p) => (
             <div
               key={`${p.retailer}:${p.sku}`}
@@ -149,7 +149,7 @@ export default function Dashboard() {
             >
               <div className="flex items-start justify-between mb-2">
                 <div className="flex-1 min-w-0">
-                  <p className="font-medium text-sm truncate">{p.label}</p>
+                  <p >{p.label}</p>
                   <p className="text-xs text-zinc-500 mt-0.5">{p.sku}</p>
                 </div>
                 <span

@@ -41,6 +41,10 @@ async function checkSkus(skus) {
 function parseSkuResult(skuData) {
   if (!skuData || Array.isArray(skuData)) return null;
   const s = skuData.sku;
+  // Inactive SKU = product not yet listed, treat as OOS (not an error)
+  if (s?.error && s.error.includes('PRODUCT_SKU_INACTIVE')) {
+    return { available: false, price: 'N/A', inactive: true };
+  }
   if (s?.error || !s?.skuId) return { available: false, price: 'N/A', error: s?.error || 'unknown' };
 
   return {
