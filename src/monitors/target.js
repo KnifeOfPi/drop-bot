@@ -43,7 +43,15 @@ async function extractStockData(page, tcin, url) {
       const body = document.body?.innerText || '';
 
       // Signal 1: "Add to cart" button that's actually enabled
-      const addToCartBtn = document.querySelector('[data-test="shippingATCButton"], [data-test="pickupATCButton"], button:has-text("Add to cart")');
+      const addToCartBtn = (() => {
+        const sel = document.querySelector('[data-test="shippingATCButton"], [data-test="pickupATCButton"]');
+        if (sel) return sel;
+        const btns = document.querySelectorAll('button');
+        for (const b of btns) {
+          if (b.textContent?.toLowerCase().includes('add to cart')) return b;
+        }
+        return null;
+      })();
       const atcEnabled = addToCartBtn && !addToCartBtn.disabled;
 
       // Signal 2: Text-based indicators
@@ -58,7 +66,13 @@ async function extractStockData(page, tcin, url) {
       const title = document.title?.replace(' : Target', '') || '';
 
       // Signal 5: "Notify me when available" = OOS
-      const notifyBtn = document.querySelector('button:has-text("Notify me")');
+      const notifyBtn = (() => {
+        const btns = document.querySelectorAll('button');
+        for (const b of btns) {
+          if (b.textContent?.toLowerCase().includes('notify me')) return b;
+        }
+        return null;
+      })();
 
       const inStock = (atcEnabled && !soldOutText && !unavailableText && !notifyBtn);
 

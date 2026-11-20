@@ -44,7 +44,14 @@ async function checkPokemonCenterProduct(page, url, label) {
     const data = await page.evaluate(() => {
       const title = document.querySelector('h1, [class*="title"], [class*="product-name"]')?.textContent?.trim() || '';
       const price = document.querySelector('[class*="price"], .price, [data-testid="price"]')?.textContent?.trim() || '';
-      const addToCart = document.querySelector('button[class*="add-to-cart"], button:has-text("Add to cart"), [data-testid="add-to-cart"]');
+      const addToCart = (() => {
+        const btns = document.querySelectorAll('button');
+        for (const b of btns) {
+          if (b.textContent?.toLowerCase().includes('add to cart')) return b;
+          if (b.className?.includes('add-to-cart')) return b;
+        }
+        return document.querySelector('[data-testid="add-to-cart"]');
+      })();
       const soldOut = document.body?.innerText?.includes('sold out') || document.body?.innerText?.includes('unavailable');
       const inStock = !!addToCart && !soldOut;
       return { title, price, inStock, soldOut };
