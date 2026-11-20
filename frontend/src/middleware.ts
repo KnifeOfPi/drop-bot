@@ -28,6 +28,7 @@ async function validCookie(req: NextRequest): Promise<boolean> {
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
+  const method = req.method;
 
   // Skip auth for static assets and API routes
   if (
@@ -41,12 +42,12 @@ export async function middleware(req: NextRequest) {
   // If already authenticated, pass through
   if (await validCookie(req)) return NextResponse.next();
 
-  // Check for password submission
-  if (req.method === "POST" && pathname === "/login") {
+  // Check for password submission (GET with ?p= param)
+  if (method === "GET" && pathname === "/login") {
     const password = req.nextUrl.searchParams.get("p");
     if (password === SECRET) {
       const ts = Date.now().toString();
-      const hash = sign(ts);
+      const hash = await sign(ts);
       const res = NextResponse.redirect(new URL("/", req.url));
       res.cookies.set(COOKIE_NAME, `${ts}.${hash}`, {
         maxAge: COOKIE_MAX_AGE,
@@ -58,7 +59,9 @@ export async function middleware(req: NextRequest) {
       return res;
     }
     // Wrong password — redirect back to login with error
-    return NextResponse.redirect(new URL("/login?error=1", req.url));
+    if (password && password !== SECRET) {
+      return NextResponse.redirect(new URL("/login?error=1", req.url));
+    }
   }
 
   // Not authenticated — show login page
