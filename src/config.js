@@ -6,7 +6,7 @@ import { fileURLToPath } from 'url';
 import yaml from 'js-yaml';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const CONFIG_PATH = resolve(__dirname, '..', 'config.yaml');
+export const CONFIG_PATH = process.env.DROPBOT_CONFIG || resolve(__dirname, '..', 'config.yaml');
 
 let cachedConfig = null;
 
@@ -37,4 +37,45 @@ export function getDiscordWebhooks() {
 export function getMonitorSettings() {
   const config = loadConfig();
   return config.monitor || { interval_seconds: 3, max_consecutive_errors: 10 };
+}
+// Read config.yaml fresh from disk (no cache, never exits). Used by the
+// checkout engine so the kill switch / dry-run / per-product toggles saved
+// from the dashboard take effect immediately without a daemon restart.
+export function loadConfigFresh() {
+  try {
+    return yaml.load(readFileSync(CONFIG_PATH, 'utf8')) || {};
+  } catch (e) {
+    console.error(`[config] Fresh read failed: ${e.message}`);
+    return null;
+  }
+}
+
+// Stable identifier for a product within its retailer.
+export function productId(product) {
+  if (!product) return '';
+  if (product.retailer === 'target') return String(product.tcin || '');
+  if (product.retailer === 'best-buy') return String(product.sku || '');
+  if (product.retailer === 'pokemon-center') return String(product.url || '').split('/').filter(Boolean).pop() || '';
+  return String(product.sku || product.tcin || product.url || '');
+}
+
+export function productKey(product) {
+  return `${product.retailer}:${productId(product)}`;
+}
+
+export const CHECKOUT_DEFAULTS = {
+  enabled: false,              // master kill switch
+  dry_run: true,               // stop at the final "Place order" button
+  headless: false,             // headed Chrome passes bot checks far more often
+  max_orders_per_product: 1,   // lifetime successful orders per product (ledger-backed)
+  max_total_spend: 300,        // lifetime spend cap across all products
+  max_total_overage_pct: 20,   // abort if order total > max_price * (1 + pct) (tax/shipping headroom)
+  retry_cooldown_seconds: 60,  // wait after a failed attempt before retrying that product
+  step_timeout_seconds: 20,    // per-step wait (find button, page load, ...)
+  queue_wait_minutes: 30,      // how long to sit in a waiting room / queue
+  profile_dir: '~/.drop-bot/profiles',
+};
+
+export function getCheckoutSettings(config) {
+  return { ...CHECKOUT_DEFAULTS, ...((config || loadConfig()).checkout || {}) };
 }

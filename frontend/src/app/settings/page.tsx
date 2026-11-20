@@ -10,18 +10,53 @@ interface Config {
     url?: string;
     label: string;
     max_price?: number;
+    auto_checkout?: boolean;
   }>;
   discord?: Record<string, string>;
   monitor?: { interval_seconds?: number; max_consecutive_errors?: number };
   notifications?: Record<string, number>;
+  checkout?: CheckoutSettings;
 }
+
+interface CheckoutSettings {
+  enabled?: boolean;
+  dry_run?: boolean;
+  headless?: boolean;
+  max_orders_per_product?: number;
+  max_total_spend?: number;
+  max_total_overage_pct?: number;
+  retry_cooldown_seconds?: number;
+  step_timeout_seconds?: number;
+  queue_wait_minutes?: number;
+}
+
+const CHECKOUT_DEFAULTS: Required<CheckoutSettings> = {
+  enabled: false,
+  dry_run: true,
+  headless: false,
+  max_orders_per_product: 1,
+  max_total_spend: 300,
+  max_total_overage_pct: 20,
+  retry_cooldown_seconds: 60,
+  step_timeout_seconds: 20,
+  queue_wait_minutes: 30,
+};
+
+const CHECKOUT_NUMBER_FIELDS: Array<{ key: keyof CheckoutSettings; label: string; hint: string; min: number; max: number }> = [
+  { key: "max_orders_per_product", label: "Max orders per product", hint: "Lifetime limit, tracked in data/orders.json", min: 1, max: 10 },
+  { key: "max_total_spend", label: "Max total spend ($)", hint: "Lifetime cap across every product", min: 0, max: 10000 },
+  { key: "max_total_overage_pct", label: "Order total headroom (%)", hint: "Total may exceed max price by this much (tax/shipping)", min: 0, max: 100 },
+  { key: "retry_cooldown_seconds", label: "Retry cooldown (seconds)", hint: "Wait after a failed attempt", min: 10, max: 3600 },
+  { key: "step_timeout_seconds", label: "Step timeout (seconds)", hint: "Per page/button wait", min: 5, max: 120 },
+  { key: "queue_wait_minutes", label: "Queue wait (minutes)", hint: "Max time in a waiting room / Best Buy \"Please Wait\"", min: 1, max: 180 },
+];
 
 export default function Settings() {
   const [config, setConfig] = useState<Config | null>(null);
   const [dirty, setDirty] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"products" | "webhooks" | "monitor">("products");
+  const [activeTab, setActiveTab] = useState<"products" | "checkout" | "webhooks" | "monitor">("products");
 
   const fetchConfig = useCallback(async () => {
     try {
@@ -53,6 +88,7 @@ export default function Settings() {
         },
         monitor: { interval_seconds: 3, max_consecutive_errors: 10 },
         notifications: { throttle_same_product_seconds: 300, throttle_same_retailer_seconds: 10 },
+        checkout: { ...CHECKOUT_DEFAULTS },
       });
     }
   }, []);
@@ -104,7 +140,7 @@ export default function Settings() {
 
   const addProduct = () => {
     updateConfig({
-      products: [...(config?.products || []), { retailer: "target", tcin: "", sku: "", url: "", label: "New Product", max_price: undefined }],
+      products: [...(config?.products || []), { retailer: "target", tcin: "", sku: "", url: "", label: "New Product", max_price: undefined, auto_checkout: false }],
     });
   };
 
@@ -121,6 +157,10 @@ export default function Settings() {
   };
 
   if (!config) return null;
+
+  const checkout = { ...CHECKOUT_DEFAULTS, ...(config.checkout || {}) };
+  const setCheckout = (patch: Partial<CheckoutSettings>) => updateConfig({ checkout: { ...checkout, ...patch } });
+  const mode = !checkout.enabled ? "off" : checkout.dry_run ? "dry" : "live";
 
   return (
     <main className="min-h-screen bg-zinc-950 text-zinc-100 font-mono">
@@ -166,7 +206,7 @@ export default function Settings() {
 
         {/* Tabs — scrollable on mobile */}
         <div className="flex gap-1 sm:gap-2 mb-6 overflow-x-auto -mx-1 px-1 pb-1">
-          {(["products", "webhooks", "monitor"] as const).map((tab) => (
+          {(["products", "checkout", "webhooks", "monitor"] as const).map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -174,7 +214,7 @@ export default function Settings() {
                 activeTab === tab ? "bg-zinc-700 text-white" : "bg-zinc-900 text-zinc-500 hover:text-zinc-300"
               }`}
             >
-              {tab === "products" ? "📦 Products" : tab === "webhooks" ? "🔗 Webhooks" : "⏱️ Monitor"}
+              {tab === "products" ? "📦 Products" : tab === "checkout" ? "🛒 Checkout" : tab === "webhooks" ? "🔗 Webhooks" : "⏱️ Monitor"}
             </button>
           ))}
         </div>
@@ -266,8 +306,98 @@ export default function Settings() {
                       </button>
                     </div>
                   </div>
+                  <label className="mt-3 flex items-center gap-2 text-xs cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={!!p.auto_checkout}
+                      onChange={(e) => updateProduct(i, "auto_checkout", e.target.checked)}
+                      className="w-4 h-4 accent-green-500"
+                    />
+                    <span className={p.auto_checkout ? "text-green-300" : "text-zinc-500"}>
+                      🛒 Auto-checkout when in stock
+                    </span>
+                    {p.auto_checkout && !(p.max_price && p.max_price > 0) && (
+                      <span className="text-amber-400">— needs a Max $ to arm</span>
+                    )}
+                  </label>
                 </div>
               ))}
+            </div>
+          </section>
+        )}
+
+        {/* Checkout tab */}
+        {activeTab === "checkout" && (
+          <section className="space-y-2 sm:space-y-4">
+            <div
+              className={`p-3 sm:p-4 rounded-lg border text-xs sm:text-sm ${
+                mode === "live" ? "border-red-700 bg-red-900/30 text-red-200"
+                : mode === "dry" ? "border-blue-700 bg-blue-900/20 text-blue-200"
+                : "border-zinc-800 bg-zinc-900/50 text-zinc-400"
+              }`}
+            >
+              {mode === "live" && "🔴 LIVE — armed products will be purchased automatically."}
+              {mode === "dry" && "🧪 DRY RUN — runs the full checkout but stops at the Place order button."}
+              {mode === "off" && "⏸️ Auto-checkout is off. Monitoring and alerts still run."}
+              <p className="text-[10px] sm:text-xs opacity-70 mt-1">
+                These switches take effect on the next attempt — no daemon restart needed. Arm products in the Products tab.
+              </p>
+            </div>
+
+            <div className="p-3 sm:p-4 rounded-lg border border-zinc-800 bg-zinc-900/50 flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium">Enable auto-checkout</p>
+                <p className="text-[10px] text-zinc-600">Master kill switch</p>
+              </div>
+              <input type="checkbox" className="w-5 h-5 accent-green-500" checked={!!checkout.enabled}
+                onChange={(e) => setCheckout({ enabled: e.target.checked })} />
+            </div>
+
+            <div className="p-3 sm:p-4 rounded-lg border border-zinc-800 bg-zinc-900/50 flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium">Dry run</p>
+                <p className="text-[10px] text-zinc-600">Stop at Place order. Turn off only after a test run succeeds for each retailer.</p>
+              </div>
+              <input type="checkbox" className="w-5 h-5 accent-blue-500" checked={!!checkout.dry_run}
+                onChange={(e) => {
+                  if (!e.target.checked && !window.confirm("Turn off dry run? Armed products will be bought with real money when they come in stock.")) return;
+                  setCheckout({ dry_run: e.target.checked });
+                }} />
+            </div>
+
+            <div className="p-3 sm:p-4 rounded-lg border border-zinc-800 bg-zinc-900/50 flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium">Headless browser</p>
+                <p className="text-[10px] text-zinc-600">Off = visible Chrome window (better at passing bot checks)</p>
+              </div>
+              <input type="checkbox" className="w-5 h-5 accent-zinc-400" checked={!!checkout.headless}
+                onChange={(e) => setCheckout({ headless: e.target.checked })} />
+            </div>
+
+            {CHECKOUT_NUMBER_FIELDS.map((f) => (
+              <div key={f.key} className="p-3 sm:p-4 rounded-lg border border-zinc-800 bg-zinc-900/50">
+                <label className="text-[10px] text-zinc-500 uppercase block mb-1">{f.label}</label>
+                <input
+                  type="number"
+                  min={f.min}
+                  max={f.max}
+                  value={Number(checkout[f.key])}
+                  onChange={(e) => {
+                    const v = parseFloat(e.target.value);
+                    if (!Number.isNaN(v)) setCheckout({ [f.key]: v } as Partial<CheckoutSettings>);
+                  }}
+                  className="w-full px-2 py-1.5 rounded bg-zinc-800 border border-zinc-700 text-sm focus:border-blue-500 outline-none"
+                />
+                <p className="text-[10px] text-zinc-600 mt-1">{f.hint}</p>
+              </div>
+            ))}
+
+            <div className="p-3 sm:p-4 rounded-lg border border-zinc-800 bg-zinc-900/30 text-[10px] sm:text-xs text-zinc-500 space-y-1">
+              <p className="text-zinc-400 font-medium">Setup (on the daemon machine)</p>
+              <p>1. <code>npm run login -- target</code> (and best-buy, pokemon-center) — log in once, save address + card</p>
+              <p>2. Put CVVs in <code>.env</code> (see .env.example)</p>
+              <p>3. Dashboard → 🧪 Test on a product → expect &quot;dry_run&quot;</p>
+              <p>4. Arm products, then turn off Dry run</p>
             </div>
           </section>
         )}
@@ -292,7 +422,9 @@ export default function Settings() {
                   <p className="text-[10px] text-zinc-600 mt-1">
                     {key === "drop_alerts" ? "Stock alerts" :
                      key === "health" ? "Startup/error pings" :
-                     key === "queue_live" ? "Queue opening alerts" : ""}
+                     key === "queue_live" ? "Queue opening alerts" :
+                     key === "checkout_success" ? "Successful orders + dry runs" :
+                     key === "checkout_fail" ? "Failed / blocked / unconfirmed checkouts" : ""}
                   </p>
                 </div>
               ))}
@@ -343,7 +475,7 @@ export default function Settings() {
         )}
 
         <footer className="mt-8 sm:mt-12 pt-4 border-t border-zinc-800 text-[10px] sm:text-xs text-zinc-600">
-          Changes require daemon restart
+          Product list + monitor changes require a daemon restart. Checkout switches apply immediately.
         </footer>
       </div>
     </main>

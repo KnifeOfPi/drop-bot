@@ -47,8 +47,15 @@ function parseSkuResult(skuData) {
   }
   if (s?.error || !s?.skuId) return { available: false, price: 'N/A', error: s?.error || 'unknown' };
 
+  // buttonState (when present) is the real purchasability signal; a listed price alone is not.
+  const button = s.buttonState?.buttonState || s.buttonState;
+  const available = typeof button === 'string'
+    ? button === 'ADD_TO_CART' || button === 'PRE_ORDER'
+    : s.regularPrice !== undefined && s.regularPrice > 0;
+
   return {
-    available: s.regularPrice !== undefined && s.regularPrice > 0,
+    available,
+    buttonState: typeof button === 'string' ? button : undefined,
     price: s.currentPrice ? `$${(s.currentPrice).toFixed(2)}` : (s.regularPrice ? `$${(s.regularPrice).toFixed(2)}` : 'N/A'),
     priceRaw: s.currentPrice || s.regularPrice || 0,
     sku: s.skuId,

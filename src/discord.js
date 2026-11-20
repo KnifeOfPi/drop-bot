@@ -1,6 +1,8 @@
 // Discord webhook relay — sends formatted product-drop embeds
 
 import { loadConfig } from './config.js';
+import { readFileSync, existsSync } from 'fs';
+import { basename } from 'path';
 
 const config = loadConfig();
 const webhooks = config.discord || {};
@@ -117,3 +119,60 @@ export async function sendHealthAlert(message, isError = false) {
 }
 
 export { sendWebhook };
+
+// ── Checkout alerts ─────────────────────────────────────────────────────────
+
+async function sendWebhookWithFile(webhookUrl, embed, filePath) {
+  if (!webhookUrl) return { ok: false, error: 'no webhook URL configured' };
+  if (!filePath || !existsSync(filePath)) return sendWebhook(webhookUrl, embed);
+  try {
+    const name = basename(filePath);
+    const form = new FormData();
+    form.append('payload_json', JSON.stringify({
+      username: 'Pokémon Drop Bot',
+      embeds: [{ ...embed, image: { url: `attachment://${name}` } }],
+    }));
+    form.append('files[0]', new Blob([readFileSync(filePath)], { type: 'image/png' }), name);
+    const res = await fetch(webhookUrl, { method: 'POST', body: form });
+    return { ok: res.ok, status: res.status };
+  } catch {
+    return sendWebhook(webhookUrl, embed);
+  }
+}
+
+/**
+ * Checkout result → Discord. success / dry_run go to checkout_success;
+ * failed / guard / unconfirmed go to checkout_fail. Both fall back to drop_alerts.
+ */
+export async function sendCheckoutAlert(r) {
+  const meta = {
+    success:     { title: '✅ CHECKOUT SUCCESS', color: 0x2ECC71, hook: 'checkout_success' },
+    dry_run:     { title: '🧪 Dry run reached Place order', color: 0x3498DB, hook: 'checkout_success' },
+    unconfirmed: { title: '❓ Order clicked — NOT confirmed, check your account', color: 0xF39C12, hook: 'checkout_fail' },
+    failed:      { title: '❌ Checkout failed', color: 0xE74C3C, hook: 'checkout_fail' },
+    guard:       { title: '🛑 Checkout blocked by safety guard', color: 0x95A5A6, hook: 'checkout_fail' },
+  }[r.status];
+  if (!meta) return;
+
+  const fields = [
+    { name: 'Retailer', value: r.retailer || 'N/A', inline: true },
+    { name: 'Total', value: r.total != null ? `$${Number(r.total).toFixed(2)}` : 'N/A', inline: true },
+    { name: 'Max', value: r.max_price != null ? `$${r.max_price}` : 'N/A', inline: true },
+  ];
+  if (r.order_number) fields.push({ name: 'Order #', value: String(r.order_number), inline: true });
+  if (r.duration_ms) fields.push({ name: 'Time', value: `${(r.duration_ms / 1000).toFixed(1)}s`, inline: true });
+
+  const embed = {
+    title: `${meta.title} — ${r.label}`,
+    description: r.error || r.message || '',
+    url: r.url,
+    color: meta.color,
+    fields,
+    timestamp: new Date().toISOString(),
+  };
+  const url = webhooks[meta.hook] || webhooks.drop_alerts;
+  if (!url) return { ok: false, error: 'no webhook URL configured' };
+  const res = await sendWebhookWithFile(url, embed, r.screenshot);
+  if (!res.ok) console.error(`[discord] checkout alert failed: ${JSON.stringify(res)}`);
+  return res;
+}

@@ -21,48 +21,77 @@ products:
     tcin: "1010892076"
     label: "30th Celebration ETB"
     max_price: 69.99
+    auto_checkout: false
 
   - retailer: target
     tcin: "1010892077"
     label: "30th Celebration Booster Bundle"
     max_price: 39.99
+    auto_checkout: false
 
   - retailer: target
     tcin: "1010892078"
     label: "30th Celebration Ultra-Premium Collection"
     max_price: 199.99
+    auto_checkout: false
 
   # ── Best Buy ──────────────────────────────────────────────────────────
   - retailer: best-buy
     sku: "6580529"
     label: "30th Celebration ETB"
     max_price: 69.99
+    auto_checkout: false
 
   - retailer: best-buy
     sku: "6580530"
     label: "30th Celebration Booster Bundle"
     max_price: 39.99
+    auto_checkout: false
 
   - retailer: best-buy
     sku: "6580531"
     label: "30th Celebration Ultra-Premium Collection"
     max_price: 199.99
+    auto_checkout: false
 
   # ── Pokémon Center ─────────────────────────────────────────────────────
   - retailer: pokemon-center
     url: "https://www.pokemoncenter.com/product/699-18442"
     label: "30th Celebration ETB"
     max_price: 69.99
+    auto_checkout: false
 
   - retailer: pokemon-center
     url: "https://www.pokemoncenter.com/product/699-18443"
     label: "30th Celebration Booster Bundle"
     max_price: 39.99
+    auto_checkout: false
 
   - retailer: pokemon-center
     url: "https://www.pokemoncenter.com/product/699-18444"
     label: "30th Celebration Ultra-Premium Collection"
     max_price: 199.99
+    auto_checkout: false
+
+# ── Auto-checkout ────────────────────────────────────────────────────────
+# Set auto_checkout: true on a product above to arm it (it must have max_price).
+# Before going live:
+#   1. npm run login -- target | best-buy | pokemon-center   (one time, per retailer)
+#   2. put CVVs in .env (see .env.example)
+#   3. npm run checkout-test -- <retailer> <id>   → should end in "dry_run"
+#   4. set dry_run: false, enabled: true
+# enabled / dry_run / auto_checkout are re-read on every attempt — no restart needed.
+checkout:
+  enabled: false               # master kill switch
+  dry_run: true                # stop at the "Place order" button (no purchase)
+  headless: false              # headed Chrome passes bot checks far more often
+  max_orders_per_product: 1    # lifetime orders per product (tracked in data/orders.json)
+  max_total_spend: 300         # lifetime spend cap across all products ($)
+  max_total_overage_pct: 20    # order total may exceed max_price by this % (tax/shipping)
+  retry_cooldown_seconds: 60   # wait after a failed attempt before retrying
+  step_timeout_seconds: 20     # per-step wait
+  queue_wait_minutes: 30       # how long to sit in a waiting room / BB "Please Wait"
+  profile_dir: ~/.drop-bot/profiles
 
 # ── Monitor settings ─────────────────────────────────────────────────────
 monitor:

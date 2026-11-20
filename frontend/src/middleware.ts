@@ -30,17 +30,19 @@ export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
   const method = req.method;
 
-  // Skip auth for static assets and API routes
-  if (
-    pathname.startsWith("/_next") ||
-    pathname.startsWith("/favicon") ||
-    pathname.startsWith("/api")
-  ) {
+  // Skip auth for static assets
+  if (pathname.startsWith("/_next") || pathname.startsWith("/favicon")) {
     return NextResponse.next();
   }
 
   // If already authenticated, pass through
   if (await validCookie(req)) return NextResponse.next();
+
+  // API routes require the auth cookie too — they can change config and arm
+  // auto-checkout. The dashboard's same-origin fetches send the cookie.
+  if (pathname.startsWith("/api")) {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  }
 
   // Check for password submission (GET with ?p= param)
   if (method === "GET" && pathname === "/login") {

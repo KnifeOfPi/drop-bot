@@ -19,6 +19,32 @@ interface RetailerHealth {
   last_tick: number | null;
 }
 
+interface CheckoutAttempt {
+  id?: string;
+  ts: number;
+  key: string;
+  retailer: string;
+  label: string;
+  status: "success" | "unconfirmed" | "dry_run" | "failed" | "guard";
+  trigger?: string;
+  total?: number | null;
+  order_number?: string | null;
+  error?: string;
+  message?: string;
+  duration_ms?: number;
+}
+
+interface CheckoutStatus {
+  enabled: boolean;
+  dry_run: boolean;
+  max_orders_per_product: number;
+  max_total_spend: number;
+  spend_total: number;
+  armed: string[];
+  busy: Record<string, { key: string; started: number; dry_run: boolean }>;
+  recent: CheckoutAttempt[];
+}
+
 interface DaemonStatus {
   running: boolean;
   uptime_seconds: number;
@@ -26,6 +52,23 @@ interface DaemonStatus {
   products: ProductStatus[];
   retailers: RetailerHealth[];
   pid: number;
+  checkout?: CheckoutStatus;
+}
+
+const ATTEMPT_STYLE: Record<string, { icon: string; cls: string; label: string }> = {
+  success: { icon: "✅", cls: "text-green-300", label: "ORDERED" },
+  unconfirmed: { icon: "❓", cls: "text-amber-300", label: "UNCONFIRMED" },
+  dry_run: { icon: "🧪", cls: "text-blue-300", label: "DRY RUN OK" },
+  failed: { icon: "❌", cls: "text-red-300", label: "FAILED" },
+  guard: { icon: "🛑", cls: "text-zinc-300", label: "BLOCKED" },
+};
+
+function ago(ts: number) {
+  const s = Math.max(0, Math.round((Date.now() - ts) / 1000));
+  if (s < 60) return `${s}s ago`;
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  return `${Math.floor(s / 86400)}d ago`;
 }
 
 const RETAILER_COLORS: Record<string, string> = {
@@ -45,6 +88,32 @@ export default function Dashboard() {
   const [error, setError] = useState<string | null>(null);
   const [lastFetch, setLastFetch] = useState<number>(0);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [testMsg, setTestMsg] = useState<Record<string, string>>({});
+
+  const runTest = async (retailer: string, id: string) => {
+    const k = `${retailer}:${id}`;
+    if (!window.confirm("Run a DRY RUN checkout? It adds the item to your cart and stops at Place order.")) return;
+    setTestMsg((m) => ({ ...m, [k]: "Starting…" }));
+    try {
+      const res = await fetch("/api/checkout/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ retailer, id }),
+      });
+      const data = await res.json();
+      setTestMsg((m) => ({ ...m, [k]: data.message || data.error || `HTTP ${res.status}` }));
+    } catch (e: any) {
+      setTestMsg((m) => ({ ...m, [k]: e.message }));
+    }
+  };
+
+  const co = status?.checkout;
+  const coMode = !co ? null : !co.enabled ? "off" : co.dry_run ? "dry" : "live";
+  const coBadge =
+    coMode === "live" ? { text: "🛒 LIVE", cls: "bg-red-700 text-white" }
+    : coMode === "dry" ? { text: "🧪 DRY RUN", cls: "bg-blue-800 text-blue-100" }
+    : coMode === "off" ? { text: "🛒 OFF", cls: "bg-zinc-800 text-zinc-400" }
+    : null;
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -94,6 +163,9 @@ export default function Dashboard() {
             <span className="text-zinc-400">Uptime: {uptime}</span>
             <span className="text-zinc-600">|</span>
             <span className="text-zinc-400">Tick #{status?.tick_count ?? 0}</span>
+            {coBadge && (
+              <a href="/settings" className={`px-2 py-0.5 rounded text-xs font-bold ${coBadge.cls}`}>{coBadge.text}</a>
+            )}
             <a href="/settings" className="px-3 py-1 rounded text-xs bg-zinc-800 hover:bg-zinc-700 text-zinc-400 transition-colors">
               ⚙️ Settings
             </a>
@@ -103,6 +175,7 @@ export default function Dashboard() {
           <div className="flex items-center gap-2 sm:hidden">
             <span className={`w-2 h-2 rounded-full ${status?.running ? "bg-green-400 animate-pulse" : "bg-red-400"}`} />
             <span className="text-xs text-zinc-400">#{status?.tick_count ?? 0}</span>
+            {coBadge && <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${coBadge.cls}`}>{coBadge.text}</span>}
             <button
               onClick={() => setMenuOpen(!menuOpen)}
               className="p-2 rounded hover:bg-zinc-800 transition-colors"
@@ -166,6 +239,53 @@ export default function Dashboard() {
           </div>
         </section>
 
+        {/* Checkout */}
+        {co && (
+          <section className="mb-6">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-xs sm:text-sm text-zinc-500 uppercase tracking-wider">Checkout</h2>
+              <span className="text-[10px] sm:text-xs text-zinc-500">
+                {co.armed.length} armed · ${co.spend_total.toFixed(2)} / ${co.max_total_spend} spent
+              </span>
+            </div>
+            {Object.values(co.busy).map((b) => (
+              <div key={b.key} className="mb-2 p-2 sm:p-3 rounded-lg border border-yellow-700 bg-yellow-900/20 text-yellow-200 text-xs animate-pulse">
+                ⏳ {b.dry_run ? "Dry run" : "LIVE checkout"} running: {b.key} ({ago(b.started)})
+              </div>
+            ))}
+            {co.recent.length === 0 ? (
+              <div className="p-3 rounded-lg border border-zinc-800 bg-zinc-900/50 text-zinc-600 text-xs">
+                No checkout attempts yet. Use 🧪 Test on a product to verify login + checkout flow.
+              </div>
+            ) : (
+              <div className="rounded-lg border border-zinc-800 divide-y divide-zinc-800 bg-zinc-900/50">
+                {co.recent.slice(0, 8).map((a, i) => {
+                  const st = ATTEMPT_STYLE[a.status] || { icon: "•", cls: "text-zinc-400", label: a.status };
+                  return (
+                    <div key={a.id || i} className="p-2 sm:p-3 text-xs">
+                      <div className="flex items-start justify-between gap-2">
+                        <span className="min-w-0 break-words">
+                          <span className={`font-bold ${st.cls}`}>{st.icon} {st.label}</span>{" "}
+                          <span className="text-zinc-300">{a.label}</span>{" "}
+                          <span className="text-zinc-600">({a.retailer})</span>
+                        </span>
+                        <span className="shrink-0 text-zinc-600 text-[10px]">{ago(a.ts)}</span>
+                      </div>
+                      <div className="text-[10px] text-zinc-500 mt-0.5 break-words">
+                        {a.total != null && <>Total ${Number(a.total).toFixed(2)} · </>}
+                        {a.order_number && <>Order #{a.order_number} · </>}
+                        {a.duration_ms != null && <>{(a.duration_ms / 1000).toFixed(1)}s · </>}
+                        {a.trigger}
+                        {a.error && <span className="text-red-400"> · {a.error}</span>}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+        )}
+
         {/* Product grid */}
         <section>
           <h2 className="text-xs sm:text-sm text-zinc-500 uppercase tracking-wider mb-3">
@@ -208,6 +328,23 @@ export default function Dashboard() {
                 {p.error && (
                   <p className="text-[10px] text-red-400 mt-1 break-words">⚠️ {p.error}</p>
                 )}
+                {co && (
+                  <div className="mt-2 flex items-center justify-between gap-2">
+                    <span className={`text-[10px] ${co.armed.includes(`${p.retailer}:${p.sku}`) ? "text-green-400" : "text-zinc-600"}`}>
+                      {co.armed.includes(`${p.retailer}:${p.sku}`) ? "🛒 Auto-checkout armed" : "Auto-checkout off"}
+                    </span>
+                    <button
+                      onClick={() => runTest(p.retailer, p.sku)}
+                      disabled={!!co.busy[p.retailer]}
+                      className="px-2 py-1 rounded text-[10px] sm:text-xs bg-zinc-800 hover:bg-zinc-700 text-zinc-300 disabled:opacity-40 transition-colors"
+                    >
+                      🧪 Test
+                    </button>
+                  </div>
+                )}
+                {testMsg[`${p.retailer}:${p.sku}`] && (
+                  <p className="text-[10px] text-blue-300 mt-1 break-words">{testMsg[`${p.retailer}:${p.sku}`]}</p>
+                )}
               </div>
             )) ?? (
               <div className="col-span-2 text-zinc-600 text-xs sm:text-sm">No product data</div>
@@ -217,7 +354,7 @@ export default function Dashboard() {
 
         {/* Footer */}
         <footer className="mt-8 sm:mt-12 pt-4 border-t border-zinc-800 text-[10px] sm:text-xs text-zinc-600 flex flex-col sm:flex-row justify-between gap-1">
-          <span>Drop Bot M1 • Pokémon Monitor</span>
+          <span>Drop Bot • Pokémon Monitor + Auto-Checkout</span>
           <span>Last fetch: {new Date(lastFetch).toLocaleTimeString()}</span>
         </footer>
       </div>

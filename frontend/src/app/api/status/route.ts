@@ -7,8 +7,7 @@
 // the response for the frontend.
 
 import { NextResponse } from "next/server";
-
-const DAEMON_URL = process.env.DAEMON_URL || "http://localhost:4200";
+import { daemonFetch } from "@/lib/daemon";
 
 // Fallback mock data when daemon is unreachable — shows "offline" state
 // rather than a blank page
@@ -27,14 +26,7 @@ const FALLBACK = {
 
 export async function GET() {
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 5000);
-
-    const res = await fetch(`${DAEMON_URL}/status`, {
-      signal: controller.signal,
-      headers: { Accept: "application/json" },
-    });
-    clearTimeout(timeout);
+    const res = await daemonFetch("/status");
 
     if (!res.ok) {
       return NextResponse.json(FALLBACK, { status: 502 });

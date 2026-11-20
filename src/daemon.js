@@ -5,11 +5,13 @@
 // Usage: node src/daemon.js
 // For systemd/pm2: ensure working directory is /tmp/drop-bot
 
-import { loadConfig } from './config.js';
+import './env.js';
+import { loadConfig, CONFIG_PATH } from './config.js';
 import { sendHealthAlert } from './discord.js';
 import { checkTarget } from './monitors/target.js';
 import { checkBestBuy } from './monitors/best-buy.js';
 import { checkPokemonCenter } from './monitors/pokemon-center.js';
+import { onStockObserved, getCheckoutStatus, runCheckout, findProduct } from './checkout/index.js';
 import { createServer } from 'http';
 import { readFileSync, writeFileSync } from 'fs';
 import { resolve, dirname } from 'path';
@@ -17,7 +19,6 @@ import { fileURLToPath } from 'url';
 import yaml from 'js-yaml';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const CONFIG_PATH = resolve(__dirname, '..', 'config.yaml');
 
 const config = loadConfig();
 const settings = config.monitor || {};
@@ -25,6 +26,7 @@ const settings = config.monitor || {};
 const INTERVAL_MS = (settings.interval_seconds || 3) * 1000;
 const MAX_ERRORS = settings.max_consecutive_errors || 10;
 const HTTP_PORT = parseInt(process.env.DAEMON_PORT || '4200', 10);
+const DAEMON_TOKEN = process.env.DAEMON_TOKEN || '';
 const START_TIME = Date.now();
 
 // In-memory state for API
@@ -69,6 +71,7 @@ async function tick() {
             retailer: 'target', label: r.product.label, sku: r.product.tcin,
             price: r.result.price, in_stock: r.result.in_stock, last_checked: Date.now(),
           });
+          if (r.result.in_stock === true) onStockObserved(r.product, { price: r.result.price });
         }
       }
       retailerLastTick.target = Date.now();
@@ -89,6 +92,7 @@ async function tick() {
             retailer: 'best-buy', label: r.product.label, sku: r.product.sku,
             price: r.result.price, in_stock: r.result.available, last_checked: Date.now(),
           });
+          if (r.result.available === true) onStockObserved(r.product, { price: r.result.price });
         }
       }
       retailerLastTick['best-buy'] = Date.now();
@@ -111,6 +115,7 @@ async function tick() {
           retailer: 'pokemon-center', label: r.product.label, sku: r.product.url.split('/').pop(),
           price: r.result.price, in_stock: r.result.in_stock, last_checked: Date.now(),
         });
+        if (r.result.in_stock === true) onStockObserved(r.product, { price: r.result.price });
       }
     }
     retailerLastTick['pokemon-center'] = Date.now();
@@ -159,14 +164,19 @@ async function main() {
     const path = url.pathname;
     const method = req.method;
 
-    // CORS
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, PUT, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-
+    // No CORS headers: the dashboard talks to the daemon server-to-server via its
+    // /api routes, so browsers never need cross-origin access. Allowing "*" would
+    // let any website you visit reach this API (and arm checkout) on localhost.
     if (method === 'OPTIONS') {
       res.writeHead(204);
       res.end();
+      return;
+    }
+
+    // Shared-secret auth (set DAEMON_TOKEN in .env and in the frontend env).
+    if (DAEMON_TOKEN && req.headers.authorization !== `Bearer ${DAEMON_TOKEN}`) {
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'unauthorized' }));
       return;
     }
 
@@ -186,6 +196,7 @@ async function main() {
         pid: process.pid,
         products,
         retailers,
+        checkout: getCheckoutStatus(),
       });
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(body);
@@ -224,6 +235,17 @@ async function main() {
         const raw = readFileSync(CONFIG_PATH, 'utf8');
         const current = yaml.load(raw);
 
+        // GET /config masks webhook URLs ("https://..."). When the dashboard saves the
+        // whole config back, keep the real URL instead of overwriting it with the mask.
+        if (updates.discord && current.discord) {
+          for (const [k, v] of Object.entries(updates.discord)) {
+            const real = current.discord[k];
+            if (typeof v === 'string' && typeof real === 'string' && real && v === real.substring(0, 8) + '...') {
+              updates.discord[k] = real;
+            }
+          }
+        }
+
         // Deep merge updates into current config
         function deepMerge(target, source) {
           for (const key of Object.keys(source)) {
@@ -246,6 +268,35 @@ async function main() {
         res.end(JSON.stringify({ ok: true, message: 'Config updated. Restart daemon to apply.' }));
       } catch (e) {
         res.writeHead(400);
+        res.end(JSON.stringify({ error: e.message }));
+      }
+      return;
+    }
+
+    // ── POST /checkout/test  { retailer, id } ─────────────────────────────
+    // Runs a DRY RUN checkout (stops at Place order) to verify login + selectors.
+    if (path === '/checkout/test' && method === 'POST') {
+      try {
+        const chunks = [];
+        for await (const chunk of req) chunks.push(chunk);
+        const { retailer, id } = JSON.parse(Buffer.concat(chunks).toString() || '{}');
+        const product = findProduct(retailer, id);
+        if (!product) {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: `no ${retailer} product ${id} in config` }));
+          return;
+        }
+        if (getCheckoutStatus().busy[retailer]) {
+          res.writeHead(409, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: `${retailer} checkout already running` }));
+          return;
+        }
+        runCheckout(product, { dryRun: true, trigger: 'dashboard_test' })
+          .catch(e => console.error(`[daemon] checkout test crashed: ${e.message}`));
+        res.writeHead(202, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, message: `Dry run started for ${product.label} — result appears under Checkout and in Discord` }));
+      } catch (e) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: e.message }));
       }
       return;
