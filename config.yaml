@@ -4,12 +4,12 @@
 
 # ── Discord webhooks ──────────────────────────────────────────────────────
 discord:
-  drop_alerts: ""       # product stock alerts
-  queue_live: ""        # queue opening alerts
-  checkout_success: ""  # successful checkouts
-  checkout_fail: ""     # failed checkouts
-  cancellations: ""     # order cancellations
-  health: ""            # bot health (startup, errors, restarts)
+  drop_alerts: "https://discord.com/api/webhooks/1573397921775353856/PcNGgyM6YJqdOFh9TwTin2gn4d1EfrPWIQkY8EvMgeIBdoSNGDF_Yt2NiChaOiL-z3lR"
+  queue_live: "https://discord.com/api/webhooks/1573397921775353856/PcNGgyM6YJqdOFh9TwTin2gn4d1EfrPWIQkY8EvMgeIBdoSNGDF_Yt2NiChaOiL-z3lR"
+  checkout_success: ""
+  checkout_fail: ""
+  cancellations: ""
+  health: "https://discord.com/api/webhooks/1573397921775353856/PcNGgyM6YJqdOFh9TwTin2gn4d1EfrPWIQkY8EvMgeIBdoSNGDF_Yt2NiChaOiL-z3lR"
 
 # ── Product watchlist ─────────────────────────────────────────────────────
 # Products to monitor for stock/availability changes.
