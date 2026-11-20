@@ -12,7 +12,45 @@ Once the bot is on a server you do **everything** from the dashboard: sign in to
 
 ---
 
-## Option A — Railway (all in the browser, no command line)
+## You already run the bot on a VPS → upgrade it in place
+
+SSH into the VPS once, go to the drop-bot folder, and run:
+
+```bash
+git fetch origin claude/determined-franklin-rb267i
+git checkout FETCH_HEAD -- scripts/vps-upgrade.sh
+bash scripts/vps-upgrade.sh
+```
+
+It:
+
+1. **Saves your current settings** (watchlist, label edits, webhooks) to `data/config.yaml` —
+   from now on that's where the dashboard writes, and git never touches it.
+2. Switches the code to the new version and installs dependencies.
+3. Installs **Google Chrome + Xvfb** (virtual screen) if they're missing.
+4. Adds a **`DAEMON_TOKEN`** to `.env` if there isn't one, and prints it.
+5. Restarts the daemon the way it already runs — **pm2** (`drop-bot`) or **systemd** (`drop-bot.service`).
+
+On first start the bot upgrades your old settings automatically (backup at `data/config.yaml.v1.bak`):
+check interval 3s → 30s (every check is now a real logged-in page load), Walmart Wednesday hot window
+added, discovery turned on, and your products set to **Queue + cart, I finish** — none of which does
+anything until you turn on automation.
+
+Then:
+
+- **Vercel** → dashboard project → Environment Variables: add **`DAEMON_TOKEN`** (the value the script
+  printed) and redeploy. `DAEMON_URL` stays as it is.
+- **Dashboard → 🔐 Accounts**: paste your proxy (the one you use for Pokémon Center — the
+  `host:port:user:pass` format is fine), tap **Test**, then **Sign in** to each store and save CVVs.
+
+If the bot folder is under `/tmp` (which is wiped on reboot), the script keeps the bot's data in
+`~/.drop-bot/data` instead. Store logins live in `~/.drop-bot/profiles`.
+
+---
+
+## Starting fresh on a new server
+
+### Option A — Railway (all in the browser, no command line)
 
 1. Go to **railway.com** → sign in with GitHub → **New Project → Deploy from GitHub repo** →
    pick `drop-bot` (and the branch you want). Railway finds the `Dockerfile` and builds it.
@@ -42,7 +80,7 @@ Once the bot is on a server you do **everything** from the dashboard: sign in to
 6. Open the dashboard → **🔐 Accounts** → **Sign in** to each store, save each card CVV.
    Then **🧪 Test** one product per store.
 
-## Option B — Any VPS with Docker (Hetzner, DigitalOcean, …)
+### Option B — Any VPS with Docker (Hetzner, DigitalOcean, …)
 
 Needs one-time SSH access to the server; after that everything is from the dashboard.
 
@@ -58,15 +96,20 @@ Pick a server with 4 GB+ RAM.
 
 ---
 
-## ⚠️ Use a residential proxy
+## Proxy
 
 Servers have **datacenter IP addresses**. Walmart and Sam's Club (PerimeterX), Costco (Akamai) and
 Pokémon Center (DataDome / Imperva) block or captcha datacenter traffic far more than a home
 connection — expect "Press & Hold" captchas or outright blocks without a proxy.
 
-Set `CHECKOUT_PROXY` to a **residential** proxy with a **sticky session** (the same IP for at least
-30 minutes) so your store logins aren't challenged every time the IP changes. Most providers
-(DataImpulse, IPRoyal, Smartproxy, Bright Data…) offer a sticky-session username format.
+Set the proxy on the dashboard's **🔐 Accounts** page (or `CHECKOUT_PROXY` in `.env`). Pick which
+stores use it there — all of them by default. Use a **residential** proxy with a **sticky session**
+(the same IP for 30+ minutes) so store logins aren't challenged every time the IP changes, and sign
+in to stores *after* setting it. **Test** shows the IP the stores see.
+
+Residential proxies usually bill per GB. The bot skips images, fonts and video on the tabs that
+only watch and search (Settings → Schedule → *Save proxy data*); checkout, sign-in and Live view
+load normally.
 
 When a captcha does appear during a drop, the bot hands the session to you in Live view to solve.
 

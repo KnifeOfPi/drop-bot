@@ -17,6 +17,9 @@ export default function Accounts() {
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<Record<string, string>>({});
   const [cvv, setCvv] = useState<Record<string, string>>({});
+  const [proxyInput, setProxyInput] = useState("");
+  const [proxyMsg, setProxyMsg] = useState<string | null>(null);
+  const [proxyBusy, setProxyBusy] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -60,6 +63,32 @@ export default function Accounts() {
     load();
   };
 
+  const saveProxy = async (value: string) => {
+    setProxyBusy(true);
+    setProxyMsg(value ? "Saving…" : "Removing…");
+    const r = await postJson("/api/d/accounts/proxy", { url: value });
+    setProxyBusy(false);
+    setProxyMsg(r.message || r.error || null);
+    if (!r.error) setProxyInput("");
+    load();
+  };
+
+  const testProxy = async () => {
+    setProxyBusy(true);
+    setProxyMsg("Testing — opening a page through the proxy…");
+    const r = await postJson("/api/d/accounts/proxy/test", {});
+    setProxyBusy(false);
+    setProxyMsg(r.message || r.error || null);
+  };
+
+  const setProxyStores = async (stores: string[] | null) => {
+    const res = await fetch("/api/config", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ checkout: { proxy_stores: stores } }) });
+    setProxyMsg(res.ok ? "Saved — idle store browsers restarted with the new setting" : "Couldn't save");
+    load();
+  };
+
+  const proxy = status?.proxy;
+  const proxyStores = proxy?.stores ?? RETAILERS.map((r) => r.id);
   const accounts = status?.accounts || {};
   const watched = new Set((status?.products || []).map((p) => p.retailer));
   const openSessions = status?.login_sessions || [];
@@ -77,6 +106,60 @@ export default function Accounts() {
         <div className="p-3 rounded-lg border border-zinc-800 bg-zinc-900/40 text-[11px] sm:text-xs text-zinc-400 space-y-1">
           <p><b className="text-zinc-200">Sign in</b> opens the store&apos;s login page in the bot&apos;s browser. Type your email, password and any 2FA code in Live view — the login is saved on the bot&apos;s server and reused for queues and checkout.</p>
           <p>Make sure each account has a <b className="text-zinc-200">default shipping address and saved card</b>. Costco and Sam&apos;s need an active membership.</p>
+        </div>
+
+        {/* ── Proxy ── */}
+        <div className="p-3 sm:p-4 rounded-lg border border-zinc-800 bg-zinc-900/50 space-y-3">
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <p className="font-semibold text-sm sm:text-base">🌐 Proxy</p>
+              <p className="text-xs mt-0.5">
+                {proxy?.set
+                  ? <span className="text-green-300">✅ {proxy.server}{proxy.user ? ` · user ${proxy.user}` : ""}{proxy.source === "env" ? " · from server .env" : ""}</span>
+                  : <span className="text-zinc-400">Not set — stores see your server&apos;s own IP</span>}
+              </p>
+            </div>
+            <button disabled={proxyBusy} onClick={testProxy} className="shrink-0 px-3 py-2 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs disabled:opacity-40">Test</button>
+          </div>
+          {proxy?.source !== "env" && (
+            <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); if (proxyInput) saveProxy(proxyInput); }}>
+              <input
+                type="password"
+                autoComplete="off"
+                value={proxyInput}
+                onChange={(e) => setProxyInput(e.target.value)}
+                placeholder={proxy?.set ? "Paste a new proxy to replace it" : "host:port:user:pass  or  http://user:pass@host:port"}
+                className="flex-1 min-w-0 px-2 py-1.5 rounded bg-zinc-800 border border-zinc-700 text-xs outline-none focus:border-blue-500"
+              />
+              <button type="submit" disabled={!proxyInput || proxyBusy} className="px-3 py-1.5 rounded bg-blue-700 hover:bg-blue-600 text-white text-xs disabled:opacity-40">Save</button>
+              {proxy?.set && <button type="button" disabled={proxyBusy} onClick={() => saveProxy("")} className="text-[10px] text-zinc-500 underline">remove</button>}
+            </form>
+          )}
+          {proxy?.set && (
+            <div>
+              <p className="text-[10px] text-zinc-500 uppercase mb-1">Use it for</p>
+              <div className="flex flex-wrap gap-1">
+                {RETAILERS.map((r) => {
+                  const on = proxyStores.includes(r.id);
+                  return (
+                    <button
+                      key={r.id}
+                      onClick={() => {
+                        const next = on ? proxyStores.filter((x) => x !== r.id) : [...proxyStores, r.id];
+                        setProxyStores(next.length === RETAILERS.length ? null : next);
+                      }}
+                      className={`px-2 py-1 rounded text-[10px] sm:text-xs ${on ? "bg-blue-700 text-white" : "bg-zinc-800 text-zinc-500"}`}
+                    >{r.emoji} {r.name}</button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+          {proxyMsg && <p className="text-[10px] text-blue-300">{proxyMsg}</p>}
+          <p className="text-[10px] text-zinc-600">
+            Use a residential proxy with a <b>sticky session</b> (same IP for 30+ min) so store logins aren&apos;t re-challenged.
+            Sign in to stores <i>after</i> setting the proxy. Watching skips images to save proxy data.
+          </p>
         </div>
 
         {RETAILERS.map((r) => {

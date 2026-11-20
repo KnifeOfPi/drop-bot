@@ -4,9 +4,25 @@
 // cart and login cookies all live in the same place.
 
 import { launchProfile } from './checkout/browser.js';
-import { getCheckoutSettings, loadConfigFresh } from './config.js';
+import { getCheckoutSettings, getMonitorSettings, loadConfigFresh } from './config.js';
 
 const sessions = new Map(); // retailer -> Promise<{ context, monitorPage }>
+const leaned = new WeakSet();
+
+const HEAVY = new Set(['image', 'media', 'font']);
+
+/**
+ * Bandwidth saver for tabs nobody looks at (monitor + discovery): skip images,
+ * video and fonts — most of a product page's weight, and what a per-GB
+ * residential proxy bills for. Checkout, sign-in and Live view tabs load fully.
+ */
+export async function leanPage(page) {
+  if (leaned.has(page)) return page;
+  leaned.add(page);
+  if (getMonitorSettings(loadConfigFresh() || {}).save_bandwidth === false) return page;
+  await page.route('**/*', (route) => (HEAVY.has(route.request().resourceType()) ? route.abort() : route.fallback()));
+  return page;
+}
 
 export function getSession(retailer) {
   if (!sessions.has(retailer)) {
@@ -15,7 +31,7 @@ export function getSession(retailer) {
       const { context, page } = await launchProfile(retailer, settings);
       context.on('close', () => { if (sessions.get(retailer) === p) sessions.delete(retailer); });
       console.log(`[session] ${retailer}: browser profile open`);
-      return { context, monitorPage: page };
+      return { context, monitorPage: await leanPage(page) };
     })();
     sessions.set(retailer, p);
     p.catch(() => { if (sessions.get(retailer) === p) sessions.delete(retailer); });
@@ -26,7 +42,7 @@ export function getSession(retailer) {
 /** The tab the monitor polls product pages in. */
 export async function monitorPage(retailer) {
   const s = await getSession(retailer);
-  if (s.monitorPage.isClosed()) s.monitorPage = await s.context.newPage();
+  if (s.monitorPage.isClosed()) s.monitorPage = await leanPage(await s.context.newPage());
   return s.monitorPage;
 }
 

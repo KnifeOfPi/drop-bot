@@ -134,7 +134,7 @@ function mock(url) {
       if (Date.now() < scenario.walmartQueueUntil) {
         return html(`<h1>You're in line</h1><p>Estimated wait time: 1 minute</p><script>setTimeout(()=>location.reload(),1000)</script>`);
       }
-      return html(`<h1>Pokémon ETB</h1><span itemprop="price">$54.97</span>${addBtn('Add to cart', 'data-automation-id="atc"')}`);
+      return html(`<h1>Pokémon ETB</h1><img src="/img/etb-photo.png" width="10" height="10"><span itemprop="price">$54.97</span>${addBtn('Add to cart', 'data-automation-id="atc"')}`);
     }
     if (p === '/ip/Pokemon-Drawing-Box/222') {
       if (scenario.walmartEntered) return html(`<h1>Drawing Box</h1><p>You're entered! Winners are notified by email.</p>`);
@@ -449,6 +449,83 @@ await test('Hot windows: Walmart Wednesday speeds up polling only on Wednesdays'
   expect(!activeHotWindow('walmart', w, new Date('2026-11-19T15:00:00Z')), 'Thu should not be hot');
   expect(!activeHotWindow('walmart', w, new Date('2026-11-18T03:00:00Z')), 'Tue night ET should not be hot');
   expect(!activeHotWindow('target', w, new Date('2026-11-18T15:00:00Z')), 'other retailers unaffected');
+});
+
+// ── VPS upgrade + proxy ──
+await test('Old config is upgraded in place: interval, hot window, modes kept/added, webhooks kept, backup', async () => {
+  const { migrateConfigFile } = await import('../src/config.js');
+  const { readFileSync, existsSync } = await import('fs');
+  const old = join(TMP, 'old-config.yaml');
+  writeFileSync(old, yaml.dump({
+    discord: { drop_alerts: 'https://discord.com/api/webhooks/1/abc', health: 'https://discord.com/api/webhooks/1/abc' },
+    products: [
+      { retailer: 'target', tcin: '1010892076', label: 'ETB', max_price: 69.99, auto_checkout: false },
+      { retailer: 'pokemon-center', url: 'https://www.pokemoncenter.com/product/699-18442', label: 'PC ETB', max_price: 69.99, auto_checkout: true },
+      { retailer: 'best-buy', sku: '6580529', label: 'BB ETB' },
+    ],
+    checkout: { enabled: false, dry_run: true, max_total_spend: 500 },
+    monitor: { interval_seconds: 3, pc_queue_check_seconds: 5, backoff_on_429: 30, max_consecutive_errors: 10 },
+    stealth: { headless: true },
+    notifications: { throttle_same_product_seconds: 300 },
+  }));
+  const changes = migrateConfigFile(old);
+  expect(Array.isArray(changes) && changes.length >= 4, `changes: ${JSON.stringify(changes)}`);
+  const c = yaml.load(readFileSync(old, 'utf8'));
+  expect(c.config_version === 2, 'version');
+  expect(c.monitor.interval_seconds === 30 && !('pc_queue_check_seconds' in c.monitor), `monitor ${JSON.stringify(c.monitor)}`);
+  expect(c.monitor.hot_windows?.[0]?.retailers?.[0] === 'walmart', 'hot window');
+  expect(!c.stealth, 'stealth removed');
+  expect(c.products.map(p => p.action).join() === 'assist,checkout,assist', `actions ${c.products.map(p => p.action)}`);
+  expect(c.products.every(p => !('auto_checkout' in p)), 'auto_checkout removed');
+  expect(c.discord.drop_alerts.endsWith('/abc'), 'webhooks kept');
+  expect(c.checkout.max_total_spend === 500 && c.checkout.enabled === false && c.checkout.handoff_hold_minutes === 20, 'checkout merged');
+  expect(c.discovery?.enabled === true, 'discovery added');
+  expect(existsSync(`${old}.v1.bak`), 'backup missing');
+  expect(migrateConfigFile(old) === null, 'second run should be a no-op');
+});
+
+await test('Proxy formats from providers are understood; SOCKS5 with a password is refused', async () => {
+  const { normalizeProxy } = await import('../src/accounts.js');
+  expect(normalizeProxy('gw.dataimpulse.com:823:user123:pa:ss') === 'http://user123:pa%3Ass@gw.dataimpulse.com:823', normalizeProxy('gw.dataimpulse.com:823:user123:pa:ss'));
+  expect(normalizeProxy('http://u:p@1.2.3.4:8080') === 'http://u:p@1.2.3.4:8080', 'url form');
+  expect(normalizeProxy('u:p@host.example:9000') === 'http://u:p@host.example:9000', 'user@host form');
+  expect(normalizeProxy('host.example:9000') === 'http://host.example:9000', 'host:port');
+  let threw = false;
+  try { normalizeProxy('socks5://u:p@h:1080'); } catch { threw = true; }
+  expect(threw, 'socks5 with auth should be refused');
+  threw = false;
+  try { normalizeProxy('not a proxy'); } catch { threw = true; }
+  expect(threw, 'garbage should be refused');
+});
+
+await test('Proxy applies to all stores by default, or only the ones picked', async () => {
+  const { setProxyUrl, proxyStatus } = await import('../src/accounts.js');
+  const { proxyFor } = await import('../src/checkout/browser.js');
+  setProxyUrl('gw.example.net:823:alice:s3cret');
+  try {
+    const st = proxyStatus();
+    expect(st.set && st.server === 'http://gw.example.net:823' && !JSON.stringify(st).includes('s3cret'), `status ${JSON.stringify(st)}`);
+    const all = proxyFor('walmart', { proxy_stores: null });
+    expect(all?.server === 'http://gw.example.net:823' && all.username === 'alice' && all.password === 's3cret', JSON.stringify(all));
+    expect(proxyFor('target', { proxy_stores: ['pokemon-center'] }) === undefined, 'target should go direct');
+    expect(proxyFor('pokemon-center', { proxy_stores: ['pokemon-center'] })?.username === 'alice', 'PC should use proxy');
+  } finally {
+    setProxyUrl('');
+  }
+  expect(!proxyStatus().set, 'proxy should be removed');
+});
+
+await test('Watch tab skips images (proxy data); checkout tab loads them', async () => {
+  const { monitorPage, newPage: np } = await import('../src/session.js');
+  const before = seen.length;
+  const mp = await monitorPage('walmart');
+  await getAdapter('walmart').check(mp, P('walmart', '111'), ctxFor());
+  expect(!seen.slice(before).some(u => u.includes('/img/etb-photo.png')), 'monitor tab loaded the image');
+  const cp = await np('walmart');
+  await cp.goto('https://www.walmart.com/ip/Pokemon-ETB/111');
+  await cp.waitForTimeout(500);
+  await cp.close();
+  expect(seen.slice(before).some(u => u.includes('/img/etb-photo.png')), 'checkout tab should load images');
 });
 
 console.log(`\n${passed} passed, ${failed} failed\n`);

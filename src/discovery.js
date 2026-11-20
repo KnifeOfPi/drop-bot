@@ -9,7 +9,7 @@ import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { resolve } from 'path';
 import { loadConfigFresh, getDiscoverySettings, getCheckoutSettings } from './config.js';
 import { getAdapter } from './retailers/index.js';
-import { newPage } from './session.js';
+import { newPage, leanPage } from './session.js';
 import { isBusy } from './checkout/index.js';
 import { DATA_DIR } from './checkout/ledger.js';
 import { sendDiscoveryAlert } from './discord.js';
@@ -57,7 +57,7 @@ export async function discoverOnce() {
     if (!adapter?.search || isBusy(retailer)) continue;
     let page;
     try {
-      page = await newPage(retailer);
+      page = await leanPage(await newPage(retailer));
       const seeding = !data.seeded[retailer];
       let ok = false;
       for (const query of s.queries || []) {

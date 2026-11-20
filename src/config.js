@@ -1,15 +1,28 @@
 // Config loader — reads config.yaml, validates, returns typed config
 
-import { readFileSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import yaml from 'js-yaml';
 import './env.js'; // load .env for every entry point (daemon, monitors, CLIs)
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-export const CONFIG_PATH = process.env.DROPBOT_CONFIG || resolve(__dirname, '..', 'config.yaml');
+const REPO_ROOT = resolve(__dirname, '..');
+// config.yaml in the repo is only a TEMPLATE. Your live settings (everything the
+// dashboard edits) live in data/config.yaml, which git ignores — so `git pull`
+// never conflicts with or overwrites them.
+export const TEMPLATE_PATH = resolve(REPO_ROOT, 'config.yaml');
+export const CONFIG_PATH = process.env.DROPBOT_CONFIG
+  || resolve(process.env.DROPBOT_DATA_DIR || resolve(REPO_ROOT, 'data'), 'config.yaml');
+
+if (!existsSync(CONFIG_PATH) && existsSync(TEMPLATE_PATH) && CONFIG_PATH !== TEMPLATE_PATH) {
+  mkdirSync(dirname(CONFIG_PATH), { recursive: true });
+  copyFileSync(TEMPLATE_PATH, CONFIG_PATH);
+  console.log(`[config] created ${CONFIG_PATH} from the template`);
+}
 
 let cachedConfig = null;
+export function clearConfigCache() { cachedConfig = null; }
 
 // Discord webhook URLs are secrets: keep them in .env, not in config.yaml.
 // DISCORD_<KEY> (e.g. DISCORD_DROP_ALERTS) overrides discord.<key> from config.yaml.
@@ -38,8 +51,8 @@ export function loadConfig() {
     cachedConfig = config;
     return config;
   } catch (e) {
-    console.error(`[config] Failed to load config.yaml: ${e.message}`);
-    console.error(`[config] Create config.yaml from the template at ${CONFIG_PATH}`);
+    console.error(`[config] Failed to load ${CONFIG_PATH}: ${e.message}`);
+    console.error(`[config] Delete it to start again from the template (${TEMPLATE_PATH})`);
     process.exit(1);
   }
 }
@@ -129,6 +142,7 @@ export const CHECKOUT_DEFAULTS = {
   queue_wait_minutes: 45,      // how long to sit in a waiting room / queue
   handoff_hold_minutes: 20,    // keep a handed-off session open this long for you to finish
   auto_enter_drawings: true,   // enter "enter to win" drawings on watched products
+  proxy_stores: null,          // stores that use the proxy (null = all of them)
   profile_dir: '~/.drop-bot/profiles',
 };
 
@@ -136,6 +150,7 @@ export const MONITOR_DEFAULTS = {
   interval_seconds: 30,        // per-retailer pass over its watchlist (outside hot windows)
   max_consecutive_errors: 10,
   hot_windows: [],             // faster polling during known drop windows (see config.yaml)
+  save_bandwidth: true,        // don't load images/fonts/video while watching & searching (proxy GBs)
 };
 
 export const DISCOVERY_DEFAULTS = {
@@ -152,4 +167,59 @@ export function getDiscoverySettings(config) {
 
 export function getCheckoutSettings(config) {
   return { ...CHECKOUT_DEFAULTS, ...((config || loadConfig()).checkout || {}) };
+}
+
+// ── One-time upgrade of settings written by the original (3-store) bot ────
+export const CONFIG_VERSION = 2;
+const WALMART_WEDNESDAY = {
+  name: 'Walmart Wednesday drops', retailers: ['walmart'], days: ['wed'],
+  start: '06:00', end: '18:00', timezone: 'America/New_York', interval_seconds: 10,
+};
+
+/**
+ * Upgrade an old-format config in place (backup at <file>.v1.bak). Keeps your
+ * products, webhooks and checkout values; returns a list of what changed, or
+ * null if the file is already current.
+ */
+export function migrateConfigFile(path = CONFIG_PATH) {
+  let raw;
+  try { raw = readFileSync(path, 'utf8'); } catch { return null; }
+  const cfg = yaml.load(raw) || {};
+  if ((cfg.config_version || 1) >= CONFIG_VERSION) return null;
+  writeFileSync(`${path}.v1.bak`, raw);
+  const changes = [];
+
+  cfg.monitor = { ...(cfg.monitor || {}) };
+  if (!(cfg.monitor.interval_seconds >= 15)) {
+    changes.push(`check interval ${cfg.monitor.interval_seconds ?? '?'}s → 30s (each check is now a real logged-in page load)`);
+    cfg.monitor.interval_seconds = 30;
+  }
+  delete cfg.monitor.pc_queue_check_seconds;
+  delete cfg.monitor.backoff_on_429;
+  if (!Array.isArray(cfg.monitor.hot_windows)) {
+    cfg.monitor.hot_windows = [WALMART_WEDNESDAY];
+    changes.push('added the Walmart Wednesday hot window (every 10s, 6am–6pm ET)');
+  }
+  if (cfg.stealth) { delete cfg.stealth; changes.push('removed the old stealth-browser section'); }
+
+  const before = cfg.checkout || {};
+  cfg.checkout = { ...CHECKOUT_DEFAULTS, ...before };
+  if (Object.keys(before).length === 0) changes.push('added automation settings (off, never clicks Place order)');
+
+  if (!cfg.discovery) { cfg.discovery = { ...DISCOVERY_DEFAULTS }; changes.push('turned on new-listing discovery'); }
+
+  let n = 0;
+  for (const p of cfg.products || []) {
+    if (!ACTIONS.includes(p.action)) {
+      p.action = p.auto_checkout ? 'checkout' : 'assist';
+      delete p.auto_checkout;
+      n++;
+    }
+  }
+  if (n) changes.push(`${n} products set to "Queue + cart, I finish" (only acts once automation is enabled)`);
+
+  cfg.config_version = CONFIG_VERSION;
+  writeFileSync(path, yaml.dump(cfg, { lineWidth: 120, noRefs: true }));
+  cachedConfig = null;
+  return changes;
 }

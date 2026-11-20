@@ -119,6 +119,14 @@ export interface LoginSession {
   url: string | null;
 }
 
+export interface ProxyStatus {
+  set: boolean;
+  source: "env" | "dashboard" | null;
+  server: string | null;
+  user: string | null;
+  stores: string[] | null; // null = every store
+}
+
 export interface DaemonStatus {
   running: boolean;
   uptime_seconds: number;
@@ -129,6 +137,7 @@ export interface DaemonStatus {
   discovery?: DiscoveryStatus;
   accounts?: Record<string, AccountStatus>;
   login_sessions?: LoginSession[];
+  proxy?: ProxyStatus;
 }
 
 export const RETAILERS: Array<{ id: string; name: string; emoji: string; color: string; idField: "tcin" | "sku" | "url"; idLabel: string }> = [

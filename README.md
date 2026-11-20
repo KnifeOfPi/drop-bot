@@ -25,10 +25,10 @@ When the bot sees the order confirmation page it marks the order done by itself.
 
 ## Setup — nothing runs on your computer
 
-1. **Put the bot on a server** — Railway (all in the browser) or any Docker VPS.
-   Step-by-step: **[DEPLOY.md](DEPLOY.md)**. Use a residential proxy (`CHECKOUT_PROXY`).
+1. **Put the bot on a server** — already running it on a VPS? `bash scripts/vps-upgrade.sh`
+   upgrades it in place. New server: Railway or Docker. Step-by-step: **[DEPLOY.md](DEPLOY.md)**.
 2. **Point the dashboard at it** — in Vercel set `DAEMON_URL`, `DAEMON_TOKEN`, `DASHBOARD_PASSWORD`.
-3. **🔐 Accounts** (dashboard) → **Sign in** to each store. The store's login page opens in the
+3. **🔐 Accounts** (dashboard) → paste your **proxy** and **Test** it, then **Sign in** to each store. The store's login page opens in the
    bot's browser via Live view: tap the email field, type, tap password, type (hidden), enter any
    2FA code, tap **Done signing in**. Make sure each account has a default shipping address and
    saved card (Costco / Sam's need an active membership). Save each card's **CVV** on the same page.
@@ -139,8 +139,9 @@ src/
 │   ├── login.js / cli.js
 ├── retailers/         # base.js + target, best-buy, walmart, costco, sams-club, pokemon-center
 ├── discord.js         # alerts (+ screenshots, @mentions)
-├── config.js / env.js
+├── config.js / env.js   # live settings in data/config.yaml (config.yaml is the template)
 frontend/              # dashboard, Accounts, Settings, Live view
-Dockerfile, docker-compose.yml, docker/   # server deployment (see DEPLOY.md)
+scripts/               # vps-upgrade.sh (in-place upgrade), run-daemon.sh (Xvfb + daemon for pm2/systemd)
+Dockerfile, docker-compose.yml, docker/   # fresh server deployment (see DEPLOY.md)
 test/checkout-mock.test.js
 ```

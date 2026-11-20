@@ -6,7 +6,7 @@
 //   POST /api/d/handoff/resolve          → { id, outcome: 'success' | 'abandoned' }
 //   POST /api/d/live/input               → { id, type, … }
 //   POST /api/d/discovery/run | discovery/watch
-//   POST /api/d/accounts/login | done | check | cvv   (sign in to stores from the dashboard)
+//   POST /api/d/accounts/login | done | check | cvv | proxy | proxy/test   (Accounts page)
 // Protected by the dashboard auth middleware.
 
 import { daemonFetch } from "@/lib/daemon";
@@ -18,7 +18,7 @@ const ALLOWED: Record<string, string[]> = {
   GET: ["live/frame"],
   POST: [
     "flow/start", "checkout/test", "drawing/enter", "handoff/resolve", "live/input", "discovery/run", "discovery/watch",
-    "accounts/login", "accounts/done", "accounts/check", "accounts/cvv",
+    "accounts/login", "accounts/done", "accounts/check", "accounts/cvv", "accounts/proxy", "accounts/proxy/test",
   ],
 };
 

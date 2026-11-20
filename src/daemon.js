@@ -17,22 +17,32 @@ import yaml from 'js-yaml';
 import {
   loadConfig, loadConfigFresh, CONFIG_PATH, webhooksFromEnv, WEBHOOK_KEYS, RETAILERS,
   productKey, productId, productAction, getMonitorSettings, getDiscoverySettings, parseListingPrice,
+  getCheckoutSettings, migrateConfigFile, clearConfigCache,
 } from './config.js';
 import { sendHealthAlert } from './discord.js';
 import { getCheckoutStatus, runFlow, runDrawing, findProduct, resolveHandoff, isBusy } from './checkout/index.js';
 import { startMonitors, stopMonitors, productState, retailerHealth } from './monitor.js';
 import { startDiscovery, stopDiscovery, discoverOnce, recentDiscoveries, discoveryState, findDiscovery, markWatched } from './discovery.js';
 import { liveFrame, liveInput, openLoginSession, closeLoginSession, checkLogin, liveSessions } from './live.js';
-import { accountsStatus, setCvv } from './accounts.js';
+import { accountsStatus, setCvv, setProxyUrl, getProxyUrl, proxyStatus } from './accounts.js';
+import { publicIp } from './checkout/browser.js';
 import { RETAILER_ADAPTERS } from './retailers/index.js';
 import { getAdapter } from './retailers/index.js';
-import { openSessions, closeAll } from './session.js';
+import { openSessions, closeAll, closeSession } from './session.js';
 
+// Upgrade settings written by the original bot (one time, backed up).
+const migrated = migrateConfigFile();
+if (migrated) {
+  console.log(`[config] upgraded ${CONFIG_PATH} (backup: ${CONFIG_PATH}.v1.bak):`);
+  for (const c of migrated) console.log(`[config]   • ${c}`);
+  clearConfigCache();
+}
 const config = loadConfig();
 const HTTP_PORT = parseInt(process.env.DAEMON_PORT || '4200', 10);
 const DAEMON_TOKEN = process.env.DAEMON_TOKEN || '';
-// Listen on localhost only unless DAEMON_HOST says otherwise (e.g. 0.0.0.0 in Docker).
-const DAEMON_HOST = process.env.DAEMON_HOST || '127.0.0.1';
+// With a DAEMON_TOKEN the API listens on all interfaces (so a dashboard on Vercel can
+// reach it); without one it only listens on localhost. DAEMON_HOST overrides.
+const DAEMON_HOST = process.env.DAEMON_HOST || (DAEMON_TOKEN ? '0.0.0.0' : '127.0.0.1');
 const LOOPBACK = ['127.0.0.1', 'localhost', '::1'].includes(DAEMON_HOST);
 if (!LOOPBACK && DAEMON_TOKEN.length < 16) {
   console.error('[daemon] Refusing to listen on a public interface without DAEMON_TOKEN (16+ characters).');
@@ -99,6 +109,7 @@ function statusBody() {
     })),
     checkout: getCheckoutStatus(),
     accounts: accountsStatus(CVV_ENVS),
+    proxy: { ...proxyStatus(), stores: getCheckoutSettings(cfg).proxy_stores ?? null },
     login_sessions: liveSessions(),
     discovery: { ...getDiscoverySettings(cfg), ...discoveryState, recent: recentDiscoveries(25) },
   };
@@ -136,6 +147,7 @@ async function route(req, res, url) {
     }
     deepMerge(current, updates);
     writeConfig(current);
+    if (updates.checkout && 'proxy_stores' in updates.checkout) await restartIdleSessions();
     console.log('[daemon] config updated');
     return send(res, 200, { ok: true, message: 'Saved. Watchlist, checkout, schedule and discovery changes apply on the next pass.' });
   }
@@ -192,6 +204,30 @@ async function route(req, res, url) {
     const loggedIn = await checkLogin(retailer);
     return send(res, 200, { ok: true, logged_in: loggedIn,
       message: loggedIn === true ? 'Signed in ✅' : loggedIn === false ? 'Signed out' : "Couldn't tell (captcha/queue on the account page)" });
+  }
+
+  // Proxy for the store browsers: { url } — '' removes it.
+  if (path === '/accounts/proxy' && method === 'POST') {
+    const { url: proxy } = await readJson(req);
+    if (process.env.CHECKOUT_PROXY) return send(res, 409, { error: 'CHECKOUT_PROXY is set in the server .env — remove it there to manage the proxy here' });
+    setProxyUrl(proxy);
+    const { restarted, deferred } = await restartIdleSessions();
+    return send(res, 200, { ok: true, proxy: proxyStatus(), message: `${proxy ? 'Proxy saved' : 'Proxy removed'}${restarted.length ? ` — restarted ${restarted.length} store browser(s)` : ''}${deferred.length ? `; ${deferred.join(', ')} will switch when idle` : ''}` });
+  }
+
+  if (path === '/accounts/proxy/test' && method === 'POST') {
+    const proxy = getProxyUrl();
+    const [server, viaProxy] = await Promise.allSettled([publicIp(null), proxy ? publicIp(proxy) : Promise.resolve(null)]);
+    const out = {
+      server_ip: server.status === 'fulfilled' ? server.value : null,
+      proxy_ip: viaProxy.status === 'fulfilled' ? viaProxy.value : null,
+      proxy_error: viaProxy.status === 'rejected' ? viaProxy.reason.message.split('\n')[0] : null,
+    };
+    out.message = !proxy ? `No proxy set — stores see your server's IP ${out.server_ip || '(unknown)'}`
+      : out.proxy_error ? `Proxy failed: ${out.proxy_error}`
+      : out.proxy_ip === out.server_ip ? `⚠️ Proxy returned your server's own IP (${out.proxy_ip}) — it isn't being used`
+      : `✅ Stores see ${out.proxy_ip} (your server is ${out.server_ip || 'unknown'})`;
+    return send(res, 200, { ok: !out.proxy_error, ...out });
   }
 
   if (path === '/accounts/cvv' && method === 'POST') {
@@ -258,6 +294,22 @@ async function route(req, res, url) {
 }
 
 // ── Startup ─────────────────────────────────────────────────────────────────
+
+/** Restart store browsers that aren't in use so proxy changes take effect now. */
+async function restartIdleSessions() {
+  const inUse = new Set([
+    ...getCheckoutStatus().handoffs.map(h => h.retailer),
+    ...liveSessions().map(l => l.retailer),
+  ]);
+  const restarted = [], deferred = [];
+  for (const r of openSessions()) {
+    if (isBusy(r) || inUse.has(r)) { deferred.push(r); continue; }
+    await closeSession(r);
+    restarted.push(r);
+  }
+  if (restarted.length) console.log(`[daemon] restarted browsers for ${restarted.join(', ')} (proxy change)`);
+  return { restarted, deferred };
+}
 
 async function main() {
   console.log('[daemon] 🚀 Drop Bot starting...');

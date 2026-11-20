@@ -43,7 +43,7 @@ interface CheckoutSettings {
 interface Config {
   products?: Product[];
   discord?: Record<string, string>;
-  monitor?: { interval_seconds?: number; max_consecutive_errors?: number; hot_windows?: HotWindow[] };
+  monitor?: { interval_seconds?: number; max_consecutive_errors?: number; hot_windows?: HotWindow[]; save_bandwidth?: boolean };
   notifications?: Record<string, number>;
   checkout?: CheckoutSettings;
   discovery?: { enabled?: boolean; interval_minutes?: number; queries?: string[]; must_match?: string; retailers?: string[] };
@@ -190,7 +190,7 @@ export default function Settings() {
   const products = config.products || [];
   const checkout = { ...CHECKOUT_DEFAULTS, ...(config.checkout || {}) };
   const setCheckout = (p: Partial<CheckoutSettings>) => patch((c) => { c.checkout = { ...checkout, ...p }; });
-  const monitor = { interval_seconds: 30, max_consecutive_errors: 10, hot_windows: [] as HotWindow[], ...(config.monitor || {}) };
+  const monitor = { interval_seconds: 30, max_consecutive_errors: 10, hot_windows: [] as HotWindow[], save_bandwidth: true, ...(config.monitor || {}) };
   const windows = monitor.hot_windows || [];
   const setWindow = (i: number, p: Partial<HotWindow>) => patch((c) => {
     c.monitor = { ...monitor, hot_windows: windows.map((w, j) => (j === i ? { ...w, ...p } : w)) };
@@ -399,6 +399,13 @@ export default function Settings() {
                 className={inputCls}
               />
             </div>
+
+            <Toggle
+              on={monitor.save_bandwidth !== false}
+              onChange={(v) => patch((c) => { c.monitor = { ...monitor, save_bandwidth: v }; })}
+              label="Save proxy data while watching"
+              hint="Skip images, fonts and video on watch + search tabs (checkout and Live view load fully). Applies when a store's browser restarts."
+            />
 
             <div className="flex items-center justify-between pt-2">
               <h2 className="text-xs sm:text-sm text-zinc-500 uppercase tracking-wider">🔥 Hot windows (faster checks)</h2>

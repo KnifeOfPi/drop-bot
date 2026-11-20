@@ -4,7 +4,8 @@
 //   data/accounts.json  — { retailer: { logged_in, checked_at, note } }
 //   data/secrets.json   — { retailer: { cvv } }   (mode 600, never sent back out)
 //
-// Env vars (TARGET_CVV, …) still work and take precedence.
+// Also the proxy for the store browsers (data/secrets.json → _proxy).
+// Env vars (TARGET_CVV, CHECKOUT_PROXY, …) still work and take precedence.
 
 import { readFileSync, writeFileSync, existsSync, chmodSync } from 'fs';
 import { resolve } from 'path';
@@ -59,4 +60,63 @@ export function accountsStatus(cvvEnvs = {}) {
       cvv_source: envSet ? 'env' : sec[r]?.cvv ? 'dashboard' : null,
     }];
   }));
+}
+
+// ── Proxy for the store browsers ─────────────────────────────────────────────
+
+/**
+ * Accepts the formats proxy providers hand out and returns a URL:
+ *   http://user:pass@host:port   host:port:user:pass   user:pass@host:port   host:port
+ */
+export function normalizeProxy(input) {
+  let v = String(input ?? '').trim();
+  if (!v) return '';
+  if (!/^[a-z0-9]+:\/\//i.test(v)) {
+    const parts = v.split(':');
+    if (parts.length >= 4 && /^\d+$/.test(parts[1])) {
+      const [host, port, user, ...pass] = parts;
+      v = `http://${encodeURIComponent(user)}:${encodeURIComponent(pass.join(':'))}@${host}:${port}`;
+    } else {
+      v = `http://${v}`;
+    }
+  }
+  let u;
+  try { u = new URL(v); } catch { throw new Error('That doesn\'t look like a proxy address (expected host:port:user:pass or http://user:pass@host:port)'); }
+  if (!['http:', 'https:', 'socks5:'].includes(u.protocol)) throw new Error('Proxy must be http, https or socks5');
+  if (!u.port) throw new Error('Proxy address needs a port');
+  if (u.protocol === 'socks5:' && u.username) {
+    throw new Error("Chrome can't use a SOCKS5 proxy with a username/password — use your provider's HTTP endpoint instead");
+  }
+  return u.toString().replace(/\/$/, '');
+}
+
+export function getProxyUrl() {
+  return process.env.CHECKOUT_PROXY || readJson(SECRETS)._proxy?.url || '';
+}
+
+export function setProxyUrl(input) {
+  const url = normalizeProxy(input);
+  const data = readJson(SECRETS);
+  if (url) data._proxy = { url };
+  else delete data._proxy;
+  writeSecret(data);
+  return url;
+}
+
+/** Safe-to-show proxy info (never the password). */
+export function proxyStatus() {
+  const url = getProxyUrl();
+  if (!url) return { set: false, source: null, server: null, user: null };
+  try {
+    const u = new URL(url.includes('://') ? url : `http://${url}`);
+    const user = decodeURIComponent(u.username || '');
+    return {
+      set: true,
+      source: process.env.CHECKOUT_PROXY ? 'env' : 'dashboard',
+      server: `${u.protocol}//${u.host}`,
+      user: user ? (user.length > 6 ? `${user.slice(0, 4)}…` : '…') : null,
+    };
+  } catch {
+    return { set: true, source: process.env.CHECKOUT_PROXY ? 'env' : 'dashboard', server: '(unparseable)', user: null };
+  }
 }

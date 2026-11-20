@@ -2,8 +2,11 @@
 # Pokémon drops at Target, Best Buy, Walmart, Costco, Sam's Club and Pokémon Center:
 # monitor → join queue → add to cart → checkout (or hand off to you) → enter drawings.
 #
-# Most of this can be edited from the dashboard (Settings). Changes apply on the
-# bot's next pass — no restart needed.
+# This file is a TEMPLATE. On first start the bot copies it to data/config.yaml;
+# that copy holds your real settings and is what the dashboard edits (git ignores
+# it, so updates never overwrite your settings). Changes apply on the next pass.
+
+config_version: 2
 
 # ── Discord webhooks ──────────────────────────────────────────────────────
 # Webhook URLs are secrets — put them in .env, NOT here (this file is committed):
