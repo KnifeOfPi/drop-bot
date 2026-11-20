@@ -10,12 +10,19 @@ import { sendHealthAlert } from './discord.js';
 import { checkTarget } from './monitors/target.js';
 import { checkBestBuy } from './monitors/best-buy.js';
 import { checkPokemonCenter } from './monitors/pokemon-center.js';
+import { createServer } from 'http';
 
 const config = loadConfig();
 const settings = config.monitor || {};
 
 const INTERVAL_MS = (settings.interval_seconds || 3) * 1000;
 const MAX_ERRORS = settings.max_consecutive_errors || 10;
+const HTTP_PORT = parseInt(process.env.DAEMON_PORT || '4200', 10);
+const START_TIME = Date.now();
+
+// In-memory state for API
+const latestProductResults = new Map(); // "retailer:sku" -> { in_stock, price, last_checked }
+const retailerLastTick = {}; // retailer -> epoch ms
 
 // Per-retailer error tracking
 const errorCounts = { target: 0, 'best-buy': 0, 'pokemon-center': 0 };
@@ -47,6 +54,17 @@ async function tick() {
       const errors = results.filter(r => r.result.error);
       if (errors.length > 0) bumpError('target');
       else resetErrors('target');
+      // Track results
+      for (const r of results) {
+        if (!r.result.error) {
+          const key = `target:${r.product.tcin}`;
+          latestProductResults.set(key, {
+            retailer: 'target', label: r.product.label, sku: r.product.tcin,
+            price: r.result.price, in_stock: r.result.in_stock, last_checked: Date.now(),
+          });
+        }
+      }
+      retailerLastTick.target = Date.now();
       return results.length;
     }).catch(e => {
       console.error(`[daemon] Target crash: ${e.message}`);
@@ -57,6 +75,16 @@ async function tick() {
       const errors = results.filter(r => !r.result || r.result.error);
       if (errors.length > 0) bumpError('best-buy');
       else resetErrors('best-buy');
+      for (const r of results) {
+        if (r.result && !r.result.error) {
+          const key = `best-buy:${r.product.sku}`;
+          latestProductResults.set(key, {
+            retailer: 'best-buy', label: r.product.label, sku: r.product.sku,
+            price: r.result.price, in_stock: r.result.available, last_checked: Date.now(),
+          });
+        }
+      }
+      retailerLastTick['best-buy'] = Date.now();
       return results.length;
     }).catch(e => {
       console.error(`[daemon] Best Buy crash: ${e.message}`);
@@ -68,7 +96,17 @@ async function tick() {
 
   // Pokemon Center runs after (uses stealth browser, can't parallel easily)
   try {
-    await checkPokemonCenter();
+    const pcResults = await checkPokemonCenter();
+    for (const r of pcResults) {
+      if (!r.result.error) {
+        const key = `pokemon-center:${r.product.url}`;
+        latestProductResults.set(key, {
+          retailer: 'pokemon-center', label: r.product.label, sku: r.product.url.split('/').pop(),
+          price: r.result.price, in_stock: r.result.in_stock, last_checked: Date.now(),
+        });
+      }
+    }
+    retailerLastTick['pokemon-center'] = Date.now();
     resetErrors('pokemon-center');
   } catch (e) {
     console.error(`[daemon] Pokemon Center crash: ${e.message}`);
@@ -108,20 +146,44 @@ async function main() {
 
   await sendHealthAlert('Drop Bot started — monitoring active ✅');
 
-  // Graceful shutdown
-  process.on('SIGINT', () => {
-    console.log('\n[daemon] Shutting down...');
-    running = false;
-    sendHealthAlert('Drop Bot stopped (SIGINT)');
-    process.exit(0);
+  // ── HTTP health endpoint for frontend dashboard ─────────────────────────
+  const server = createServer((req, res) => {
+    if (req.url === '/status' && req.method === 'GET') {
+      const products = Array.from(latestProductResults.values());
+      const retailers = ['target', 'best-buy', 'pokemon-center'].map(r => ({
+        retailer: r,
+        errors: errorCounts[r] || 0,
+        max_errors: MAX_ERRORS,
+        last_tick: retailerLastTick[r] || null,
+      }));
+      const body = JSON.stringify({
+        running,
+        uptime_seconds: Math.floor((Date.now() - START_TIME) / 1000),
+        tick_count: tickCount,
+        pid: process.pid,
+        products,
+        retailers,
+      });
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(body);
+    } else {
+      res.writeHead(404);
+      res.end('not found');
+    }
+  });
+  server.listen(HTTP_PORT, () => {
+    console.log(`[daemon] HTTP status server on port ${HTTP_PORT}`);
   });
 
-  process.on('SIGTERM', () => {
-    console.log('\n[daemon] Shutting down...');
+  // Cleanup server on shutdown
+  const shutdown = () => {
+    server.close();
     running = false;
-    sendHealthAlert('Drop Bot stopped (SIGTERM)');
+    sendHealthAlert('Drop Bot stopped');
     process.exit(0);
-  });
+  };
+  process.on('SIGINT', () => { console.log('\n[daemon] Shutting down...'); shutdown(); });
+  process.on('SIGTERM', () => { console.log('\n[daemon] Shutting down...'); shutdown(); });
 
   // Main loop
   while (running) {
