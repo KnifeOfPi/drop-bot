@@ -1,23 +1,34 @@
-# Drop Bot — Product Watchlist & Config
-# Matthew's personal drop monitor + checkout bot
-# Phase 1 (M1): Monitors + Discord alerts
+# Drop Bot — watchlist & settings
+# Pokémon drops at Target, Best Buy, Walmart, Costco, Sam's Club and Pokémon Center:
+# monitor → join queue → add to cart → checkout (or hand off to you) → enter drawings.
+#
+# Most of this can be edited from the dashboard (Settings). Changes apply on the
+# bot's next pass — no restart needed.
 
 # ── Discord webhooks ──────────────────────────────────────────────────────
 # Webhook URLs are secrets — put them in .env, NOT here (this file is committed):
-#   DISCORD_DROP_ALERTS, DISCORD_QUEUE_LIVE, DISCORD_CHECKOUT_SUCCESS,
-#   DISCORD_CHECKOUT_FAIL, DISCORD_CANCELLATIONS, DISCORD_HEALTH
-# Values set in .env override the ones below.
+#   DISCORD_DROP_ALERTS, DISCORD_QUEUE_LIVE, DISCORD_CHECKOUT_SUCCESS, DISCORD_CHECKOUT_FAIL,
+#   DISCORD_ACTION_NEEDED, DISCORD_DRAWINGS, DISCORD_DISCOVERY, DISCORD_HEALTH
+# Empty ones fall back to drop_alerts. DISCORD_MENTION_USER_ID makes urgent alerts @ you.
 discord:
   drop_alerts: ""
   queue_live: ""
   checkout_success: ""
   checkout_fail: ""
+  action_needed: ""
+  drawings: ""
+  discovery: ""
   cancellations: ""
   health: ""
 
-# ── Product watchlist ─────────────────────────────────────────────────────
-# Products to monitor for stock/availability changes.
-# Each entry must have: retailer, sku/tcin/url, label, max_price (optional)
+# ── Watchlist ─────────────────────────────────────────────────────────────
+# retailer: target (tcin) | best-buy (sku) | walmart | costco | sams-club | pokemon-center (url)
+# action:
+#   notify   — Discord alert only
+#   assist   — join the queue, add to cart, get to checkout, then ping you to finish (Live view)
+#   checkout — same, and place the order itself (needs max_price; global dry_run hands off instead)
+# max_price: never buy above this (and order total ≤ max_price + max_total_overage_pct)
+# drawings: false — don't auto-enter drawings for this product (default: enter them)
 
 products:
   # ── Target ────────────────────────────────────────────────────────────
@@ -25,90 +36,121 @@ products:
     tcin: "1010892076"
     label: "30th Celebration ETB"
     max_price: 69.99
-    auto_checkout: false
+    action: assist
 
   - retailer: target
     tcin: "1010892077"
     label: "30th Celebration Booster Bundle"
     max_price: 39.99
-    auto_checkout: false
+    action: assist
 
   - retailer: target
     tcin: "1010892078"
     label: "30th Celebration Ultra-Premium Collection"
     max_price: 199.99
-    auto_checkout: false
+    action: assist
 
   # ── Best Buy ──────────────────────────────────────────────────────────
   - retailer: best-buy
     sku: "6580529"
     label: "30th Celebration ETB"
     max_price: 69.99
-    auto_checkout: false
+    action: assist
 
   - retailer: best-buy
     sku: "6580530"
     label: "30th Celebration Booster Bundle"
     max_price: 39.99
-    auto_checkout: false
+    action: assist
 
   - retailer: best-buy
     sku: "6580531"
     label: "30th Celebration Ultra-Premium Collection"
     max_price: 199.99
-    auto_checkout: false
+    action: assist
 
   # ── Pokémon Center ─────────────────────────────────────────────────────
   - retailer: pokemon-center
     url: "https://www.pokemoncenter.com/product/699-18442"
     label: "30th Celebration ETB"
     max_price: 69.99
-    auto_checkout: false
+    action: assist
 
   - retailer: pokemon-center
     url: "https://www.pokemoncenter.com/product/699-18443"
     label: "30th Celebration Booster Bundle"
     max_price: 39.99
-    auto_checkout: false
+    action: assist
 
   - retailer: pokemon-center
     url: "https://www.pokemoncenter.com/product/699-18444"
     label: "30th Celebration Ultra-Premium Collection"
     max_price: 199.99
-    auto_checkout: false
+    action: assist
 
-# ── Auto-checkout ────────────────────────────────────────────────────────
-# Set auto_checkout: true on a product above to arm it (it must have max_price).
-# Before going live:
-#   1. npm run login -- target | best-buy | pokemon-center   (one time, per retailer)
-#   2. put CVVs in .env (see .env.example)
-#   3. npm run checkout-test -- <retailer> <id>   → should end in "dry_run"
-#   4. set dry_run: false, enabled: true
-# enabled / dry_run / auto_checkout are re-read on every attempt — no restart needed.
+  # ── Walmart / Costco / Sam's Club ─────────────────────────────────────
+  # Add from the dashboard (Discovery → Watch) or paste the product URL, e.g.:
+  # - retailer: walmart
+  #   url: "https://www.walmart.com/ip/Pokemon-TCG-.../1234567890"
+  #   label: "..."
+  #   max_price: 59.99
+  #   action: assist
+  # - retailer: costco
+  #   url: "https://www.costco.com/pokemon-....product.4000123456.html"
+  # - retailer: sams-club
+  #   url: "https://www.samsclub.com/ip/pokemon-.../13654321"
+
+# ── Automation (queues, carts, checkout, drawings) ────────────────────────
+# Setup:
+#   1. npm run login -- <retailer>      (once per retailer: log in, save address + card)
+#   2. CVVs in .env (see .env.example)
+#   3. Dashboard → 🧪 Test on a product → expect "DRY RUN OK"
+#   4. enabled: true. With dry_run: true the bot never clicks Place order — it hands off to you.
 checkout:
-  enabled: false               # master kill switch
-  dry_run: true                # stop at the "Place order" button (no purchase)
-  headless: false              # headed Chrome passes bot checks far more often
-  max_orders_per_product: 1    # lifetime orders per product (tracked in data/orders.json)
+  enabled: false               # master switch for everything the bot does in a browser
+  dry_run: true                # never click Place order; hand off to you instead
+  auto_enter_drawings: true    # enter "enter to win" drawings on watched products
+  headless: false              # visible Chrome windows pass bot checks far more often
+  max_orders_per_product: 1    # lifetime orders per product (data/orders.json)
   max_total_spend: 300         # lifetime spend cap across all products ($)
   max_total_overage_pct: 20    # order total may exceed max_price by this % (tax/shipping)
   retry_cooldown_seconds: 60   # wait after a failed attempt before retrying
   step_timeout_seconds: 20     # per-step wait
-  queue_wait_minutes: 30       # how long to sit in a waiting room / BB "Please Wait"
+  queue_wait_minutes: 45       # how long to sit in a queue / waiting room
+  handoff_hold_minutes: 20     # how long a handed-off session stays open for you
   profile_dir: ~/.drop-bot/profiles
 
-# ── Monitor settings ─────────────────────────────────────────────────────
+# ── Monitor ──────────────────────────────────────────────────────────────
+# Each retailer is checked in its own logged-in browser. Keep the normal interval
+# modest so accounts don't get flagged; hot windows poll faster when drops happen.
 monitor:
-  interval_seconds: 3       # poll interval per retailer
-  pc_queue_check_seconds: 5 # Pokemon Center queue status check interval
-  backoff_on_429: 30        # seconds to back off on rate limit
-  max_consecutive_errors: 10 # restart the monitor after this many errors
+  interval_seconds: 30
+  max_consecutive_errors: 10
+  hot_windows:
+    - name: Walmart Wednesday drops
+      retailers: [walmart]
+      days: [wed]
+      start: "06:00"
+      end: "18:00"
+      timezone: America/New_York
+      interval_seconds: 10
+    # - name: Pokémon Center evening drops
+    #   retailers: [pokemon-center]
+    #   days: [mon, tue, wed, thu, fri]
+    #   start: "09:00"
+    #   end: "13:00"
+    #   timezone: America/New_York
+    #   interval_seconds: 10
 
-# ── Stealth browser settings (Pokemon Center only) ───────────────────────
-stealth:
-  headless: true
-  captcha_timeout_seconds: 45
-  page_load_timeout_ms: 30000
+# ── Discovery: find new Pokémon listings ──────────────────────────────────
+discovery:
+  enabled: true
+  interval_minutes: 15
+  queries:
+    - pokemon trading card game
+    - pokemon tcg
+  must_match: "pok[eé]mon"
+  retailers: [target, best-buy, walmart, costco, sams-club, pokemon-center]
 
 # ── Notifications ────────────────────────────────────────────────────────
 notifications:

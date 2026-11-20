@@ -1,8 +1,9 @@
-// Best Buy checkout flow. Requires: logged-in profile with saved address and
-// card. Best Buy usually asks for CVV — set BESTBUY_CVV in .env.
-// Handles the hot-drop "Please Wait..." queue on the add-to-cart button.
+// Best Buy. Drops (with the "Please Wait..." add-to-cart queue) and occasional
+// drawings. Requires a logged-in profile with saved address + card. Best Buy
+// usually asks for CVV — BESTBUY_CVV in .env.
 
-import { CheckoutError, clickFirst, findFirst, fillIfPresent, waitForAny, textMatches, bodyText } from '../helpers.js';
+import { defineRetailer } from './base.js';
+import { CheckoutError, clickFirst, findFirst, fillIfPresent, waitForAny, textMatches, bodyText, trySolveCaptcha } from '../checkout/helpers.js';
 
 const ATC = [
   'button.add-to-cart-button[data-button-state="ADD_TO_CART"]',
@@ -18,17 +19,38 @@ const PLACE_ORDER = [
 ];
 const CVV = ['input#cvv', 'input#credit-card-cvv', 'input[name="cvv"]', 'input[autocomplete="cc-csc"]'];
 
-const loggedOut = (page) => /\/identity\/signin|\/signin/i.test(page.url());
-
-export default {
+export default defineRetailer({
   id: 'best-buy',
+  name: 'Best Buy',
   loginUrl: 'https://www.bestbuy.com/identity/global/signin',
   cvvEnv: 'BESTBUY_CVV',
+  cartUrl: 'https://www.bestbuy.com/cart',
+  loggedOutUrl: /\/identity\/signin|\/signin/i,
+  confirmUrl: /thank-you|thankyou|order-confirmation/i,
+  confirmText: /thank you for your order|order number/i,
 
   productUrl: (p) => `https://www.bestbuy.com/site/${p.sku}.p?skuId=${p.sku}`,
+  searchUrl: (q) => `https://www.bestbuy.com/site/searchpage.jsp?st=${encodeURIComponent(q)}`,
+  listingRe: /bestbuy\.com\/site\/[^?#]*?\/(\d{6,8})\.p/,
+  toProduct: (l) => ({ retailer: 'best-buy', sku: l.id }),
+
+  sel: {
+    atc: ATC,
+    unavailable: UNAVAILABLE,
+    oos: /\bsold out\b|coming soon/i,
+    price: ['[data-testid="customer-price"] span', '.priceView-customer-price span'],
+    // Best Buy drawings: "Enter for a chance to buy" style buttons (often in the app too).
+    drawing: [
+      { role: 'button', name: /enter (the )?drawing|enter for a chance|join (the )?drawing|request (an )?invite/i },
+      'button[data-button-state="ENTER_DRAWING"]',
+    ],
+    placeOrder: PLACE_ORDER,
+    cvv: CVV,
+  },
 
   async addToCart(page, product, ctx) {
     await page.goto(this.productUrl(product), { waitUntil: 'domcontentloaded', timeout: ctx.timeout * 2 });
+    await trySolveCaptcha(page, ctx.log);
     const state = await waitForAny(page, {
       atc: async () => !!(await findFirst(page, ATC, { timeout: 1 })),
       oos: async () => (await page.locator(UNAVAILABLE).count()) > 0 || await textMatches(page, /\bsold out\b|coming soon/i),
@@ -38,6 +60,7 @@ export default {
     await clickFirst(page, ATC, { timeout: 3000, step: 'add to cart' });
 
     // Hot drops: button flips to "Please Wait..." then back to "Add to Cart" when it's your turn.
+    let announced = false;
     const deadline = Date.now() + ctx.settings.queue_wait_minutes * 60_000;
     while (Date.now() < deadline) {
       const res = await waitForAny(page, {
@@ -45,12 +68,16 @@ export default {
         wait: () => textMatches(page, /please wait/i),
         oos: async () => (await page.locator(UNAVAILABLE).count()) > 0,
       }, { timeout: ctx.timeout });
-      if (res === 'added') return;
+      if (res === 'added') {
+        if (announced) await ctx.onQueueExit?.();
+        return;
+      }
       if (res === 'oos') throw new CheckoutError('unavailable', 'sold out while adding to cart');
       if (res === 'wait') {
         ctx.log('Best Buy queue ("Please Wait") — waiting for button to unlock');
+        if (!announced) { announced = true; await ctx.onQueueEnter?.(); }
         const btn = await findFirst(page, ['button[data-button-state="ADD_TO_CART"]:not([disabled])'], { timeout: 10 * 60_000 });
-        if (btn) { await btn.click(); continue; }
+        if (btn) await btn.click();
         continue;
       }
       ctx.log('no add-to-cart confirmation seen — continuing to checkout anyway');
@@ -62,9 +89,9 @@ export default {
   async toReview(page, product, ctx) {
     await page.goto('https://www.bestbuy.com/checkout/r/fast-track', { waitUntil: 'domcontentloaded', timeout: ctx.timeout * 2 });
     await page.waitForTimeout(1500);
-    if (loggedOut(page)) throw new CheckoutError('not_logged_in', 'Best Buy session expired — run `npm run login -- best-buy`');
+    if (this.loggedOutUrl.test(page.url())) throw new CheckoutError('not_logged_in', 'Best Buy session expired — run `npm run login -- best-buy`');
     if (await textMatches(page, /verify your account|enter your password to continue/i)) {
-      throw new CheckoutError('not_logged_in', 'Best Buy wants the password re-entered — run `npm run login -- best-buy`');
+      throw new CheckoutError('not_logged_in', 'Best Buy wants the password re-entered');
     }
     if (await textMatches(page, /your cart is empty/i)) throw new CheckoutError('step_failed', 'cart is empty at checkout');
 
@@ -80,7 +107,7 @@ export default {
 
   async confirm(page, ctx) {
     const res = await waitForAny(page, {
-      ok: async () => /thank-you|thankyou|order-confirmation/i.test(page.url()) || await textMatches(page, /thank you for your order|order number/i),
+      ok: () => this.isConfirmed(page),
       declined: () => textMatches(page, /payment (was )?declined|unable to process your payment|card was declined/i),
       oos: () => textMatches(page, /no longer available|sold out/i),
     }, { timeout: ctx.timeout * 3 });
@@ -92,4 +119,4 @@ export default {
     if (res === 'oos') throw new CheckoutError('unavailable', 'sold out at place-order');
     throw new CheckoutError('step_failed', 'no order confirmation after clicking Place order — CHECK YOUR BEST BUY ACCOUNT');
   },
-};
+});

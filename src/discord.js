@@ -35,7 +35,14 @@ function retailerThrottled(retailer) {
   return false;
 }
 
-async function sendWebhook(webhookUrl, embed) {
+// Optional: your Discord user id (Settings → Advanced → Developer Mode → right-click
+// yourself → Copy User ID). Urgent alerts @mention you so your phone actually buzzes.
+function mention() {
+  const id = process.env.DISCORD_MENTION_USER_ID;
+  return id ? `<@${id}>` : undefined;
+}
+
+async function sendWebhook(webhookUrl, embed, { content } = {}) {
   if (!webhookUrl) return { ok: false, error: 'no webhook URL configured' };
   try {
     const res = await fetch(webhookUrl, {
@@ -44,6 +51,7 @@ async function sendWebhook(webhookUrl, embed) {
       body: JSON.stringify({
         username: 'Pokémon Drop Bot',
         avatar_url: 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png',
+        content,
         embeds: [embed],
       }),
     });
@@ -71,21 +79,16 @@ export async function sendDropAlert(alert) {
     return { throttled: true };
   }
 
-  const colors = {
-    'target': 0xCC0000,
-    'best-buy': 0x0046BE,
-    'pokemon-center': 0xFFCB05,
-  };
-
   const statusEmoji = alert.status === 'in_stock' ? '🟢' :
     alert.status === 'queue_open' ? '🔵' :
+    alert.status === 'drawing_open' ? '🎟️' :
     alert.status === 'out_of_stock' ? '🔴' : '⚪';
 
   const embed = {
     title: `${statusEmoji} ${alert.label}`,
     description: `**${alert.status.toUpperCase()}** at ${alert.retailer}`,
     url: alert.url,
-    color: colors[alert.retailer] || 0x9B59B6,
+    color: RETAILER_COLORS[alert.retailer] || 0x9B59B6,
     fields: [
       { name: 'Retailer', value: alert.retailer, inline: true },
       { name: 'Price', value: alert.price || 'N/A', inline: true },
@@ -99,7 +102,10 @@ export async function sendDropAlert(alert) {
     console.log(`[discord] retailer throttled: ${alert.retailer}`);
   }
 
-  const result = await sendWebhook(webhooks.drop_alerts, embed);
+  const hook = alert.status === 'queue_open' ? (webhooks.queue_live || webhooks.drop_alerts)
+    : alert.status === 'drawing_open' ? (webhooks.drawings || webhooks.drop_alerts)
+    : webhooks.drop_alerts;
+  const result = await sendWebhook(hook, embed);
   if (result.ok) {
     console.log(`[discord] sent: ${alert.retailer} ${alert.label} (${alert.status})`);
   } else {
@@ -122,57 +128,93 @@ export { sendWebhook };
 
 // ── Checkout alerts ─────────────────────────────────────────────────────────
 
-async function sendWebhookWithFile(webhookUrl, embed, filePath) {
+async function sendWebhookWithFile(webhookUrl, embed, filePath, { content } = {}) {
   if (!webhookUrl) return { ok: false, error: 'no webhook URL configured' };
-  if (!filePath || !existsSync(filePath)) return sendWebhook(webhookUrl, embed);
+  if (!filePath || !existsSync(filePath)) return sendWebhook(webhookUrl, embed, { content });
   try {
     const name = basename(filePath);
     const form = new FormData();
     form.append('payload_json', JSON.stringify({
       username: 'Pokémon Drop Bot',
+      content,
       embeds: [{ ...embed, image: { url: `attachment://${name}` } }],
     }));
     form.append('files[0]', new Blob([readFileSync(filePath)], { type: 'image/png' }), name);
     const res = await fetch(webhookUrl, { method: 'POST', body: form });
     return { ok: res.ok, status: res.status };
   } catch {
-    return sendWebhook(webhookUrl, embed);
+    return sendWebhook(webhookUrl, embed, { content });
   }
 }
 
-/**
- * Checkout result → Discord. success / dry_run go to checkout_success;
- * failed / guard / unconfirmed go to checkout_fail. Both fall back to drop_alerts.
- */
+const RETAILER_COLORS = {
+  target: 0xCC0000,
+  'best-buy': 0x0046BE,
+  walmart: 0x0071CE,
+  costco: 0xE31837,
+  'sams-club': 0x0067A0,
+  'pokemon-center': 0xFFCB05,
+};
+
+// status → how it looks, which webhook it goes to, and whether to @mention you.
+const CHECKOUT_META = {
+  success:         { title: '✅ ORDER PLACED', color: 0x2ECC71, hook: 'checkout_success', ping: true },
+  dry_run:         { title: '🧪 Dry run reached Place order', color: 0x3498DB, hook: 'checkout_success' },
+  handoff:         { title: '🙋 YOUR TURN — finish the purchase', color: 0xF1C40F, hook: 'action_needed', ping: true },
+  queue_joined:    { title: '🔵 Joined the queue', color: 0x3498DB, hook: 'queue_live' },
+  queue_passed:    { title: '🟢 Through the queue', color: 0x2ECC71, hook: 'queue_live', ping: true },
+  drawing_entered: { title: '🎟️ Entered drawing', color: 0x9B59B6, hook: 'drawings' },
+  drawing_manual:  { title: '🎟️ Drawing open — enter it yourself', color: 0xF1C40F, hook: 'action_needed', ping: true },
+  unconfirmed:     { title: '❓ Order clicked — NOT confirmed, check your account', color: 0xF39C12, hook: 'checkout_fail', ping: true },
+  failed:          { title: '❌ Checkout failed', color: 0xE74C3C, hook: 'checkout_fail' },
+  guard:           { title: '🛑 Blocked by safety guard', color: 0x95A5A6, hook: 'checkout_fail' },
+  handoff_expired: { title: '⌛ Hand-off expired — session closed', color: 0x95A5A6, hook: 'action_needed' },
+  handoff_closed:  { title: '🚪 Hand-off tab closed', color: 0x95A5A6, hook: 'action_needed' },
+  abandoned:       { title: '↩️ Marked as not purchased', color: 0x95A5A6, hook: 'action_needed' },
+};
+
+/** Engine events → Discord (with screenshot when there is one). */
 export async function sendCheckoutAlert(r) {
-  const meta = {
-    success:     { title: '✅ CHECKOUT SUCCESS', color: 0x2ECC71, hook: 'checkout_success' },
-    dry_run:     { title: '🧪 Dry run reached Place order', color: 0x3498DB, hook: 'checkout_success' },
-    unconfirmed: { title: '❓ Order clicked — NOT confirmed, check your account', color: 0xF39C12, hook: 'checkout_fail' },
-    failed:      { title: '❌ Checkout failed', color: 0xE74C3C, hook: 'checkout_fail' },
-    guard:       { title: '🛑 Checkout blocked by safety guard', color: 0x95A5A6, hook: 'checkout_fail' },
-  }[r.status];
+  const meta = CHECKOUT_META[r.status];
   if (!meta) return;
 
-  const fields = [
-    { name: 'Retailer', value: r.retailer || 'N/A', inline: true },
-    { name: 'Total', value: r.total != null ? `$${Number(r.total).toFixed(2)}` : 'N/A', inline: true },
-    { name: 'Max', value: r.max_price != null ? `$${r.max_price}` : 'N/A', inline: true },
-  ];
+  const fields = [{ name: 'Retailer', value: r.retailer || 'N/A', inline: true }];
+  if (r.total != null) fields.push({ name: 'Total', value: `$${Number(r.total).toFixed(2)}`, inline: true });
+  if (r.max_price != null) fields.push({ name: 'Max', value: `$${r.max_price}`, inline: true });
   if (r.order_number) fields.push({ name: 'Order #', value: String(r.order_number), inline: true });
   if (r.duration_ms) fields.push({ name: 'Time', value: `${(r.duration_ms / 1000).toFixed(1)}s`, inline: true });
+  if (r.expires) fields.push({ name: 'Held until', value: `<t:${Math.floor(r.expires / 1000)}:t>`, inline: true });
+  if (r.live_url) fields.push({ name: 'Finish here', value: `[Open Live view](${r.live_url})`, inline: false });
 
   const embed = {
     title: `${meta.title} — ${r.label}`,
     description: r.error || r.message || '',
-    url: r.url,
-    color: meta.color,
+    url: r.live_url || r.url,
+    color: meta.color || RETAILER_COLORS[r.retailer],
     fields,
     timestamp: new Date().toISOString(),
   };
-  const url = webhooks[meta.hook] || webhooks.drop_alerts;
+  const url = webhooks[meta.hook] || (meta.hook === 'action_needed' ? webhooks.checkout_fail : null) || webhooks.drop_alerts;
   if (!url) return { ok: false, error: 'no webhook URL configured' };
-  const res = await sendWebhookWithFile(url, embed, r.screenshot);
-  if (!res.ok) console.error(`[discord] checkout alert failed: ${JSON.stringify(res)}`);
+  const res = await sendWebhookWithFile(url, embed, r.screenshot, { content: meta.ping ? mention() : undefined });
+  if (!res.ok) console.error(`[discord] alert failed: ${JSON.stringify(res)}`);
   return res;
+}
+
+/** New listing found by discovery. */
+export async function sendDiscoveryAlert(l) {
+  const url = webhooks.discovery || webhooks.drop_alerts;
+  if (!url) return { ok: false, error: 'no webhook URL configured' };
+  return sendWebhook(url, {
+    title: `🆕 New listing — ${l.title}`.slice(0, 250),
+    description: `Found on **${l.retailer}** searching "${l.query}". Watch it from the dashboard.`,
+    url: l.url,
+    color: RETAILER_COLORS[l.retailer] || 0x9B59B6,
+    fields: [
+      { name: 'Retailer', value: l.retailer, inline: true },
+      { name: 'Price', value: l.price || 'N/A', inline: true },
+      { name: 'ID', value: String(l.id), inline: true },
+    ],
+    timestamp: new Date().toISOString(),
+  });
 }

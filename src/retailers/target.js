@@ -1,8 +1,9 @@
-// Target checkout flow. Requires: logged-in profile with a default shipping
-// address and saved card. Target often asks for the card CVV at checkout —
-// set TARGET_CVV in .env.
+// Target. Mostly online drops, some drawings. Requires a logged-in profile with
+// a default shipping address and saved card (Target only shows Ship it / Add to
+// cart reliably when logged in). Target often asks for CVV — TARGET_CVV in .env.
 
-import { CheckoutError, clickFirst, findFirst, fillIfPresent, waitForAny, textMatches, bodyText } from '../helpers.js';
+import { defineRetailer } from './base.js';
+import { CheckoutError, clickFirst, findFirst, fillIfPresent, waitForAny, textMatches, bodyText, waitOutQueue, trySolveCaptcha } from '../checkout/helpers.js';
 
 const ATC = [
   'button[data-test="shippingButton"]',
@@ -21,17 +22,33 @@ const CVV = [
   'input[autocomplete="cc-csc"]',
 ];
 
-const loggedOut = (page) => /\/login|\/signin|login\?/i.test(page.url());
-
-export default {
+export default defineRetailer({
   id: 'target',
+  name: 'Target',
   loginUrl: 'https://www.target.com/account',
   cvvEnv: 'TARGET_CVV',
+  cartUrl: 'https://www.target.com/cart',
+  loggedOutUrl: /\/login|\/signin|login\?/i,
+  confirmUrl: /order-confirmation|thankyou|thank-you/i,
+  confirmText: /thanks for your order|order (number|#)\s*:?\s*\d/i,
 
   productUrl: (p) => `https://www.target.com/p/-/A-${p.tcin}`,
+  searchUrl: (q) => `https://www.target.com/s?searchTerm=${encodeURIComponent(q)}`,
+  listingRe: /target\.com\/p\/[^?#]*?\/-\/A-(\d+)/,
+  toProduct: (l) => ({ retailer: 'target', tcin: l.id }),
+
+  sel: {
+    atc: ATC,
+    oos: /\b(sold out|out of stock|notify me when it's back)\b/i,
+    price: ['[data-test="product-price"]'],
+    placeOrder: PLACE_ORDER,
+    cvv: CVV,
+  },
 
   async addToCart(page, product, ctx) {
     await page.goto(this.productUrl(product), { waitUntil: 'domcontentloaded', timeout: ctx.timeout * 2 });
+    await waitOutQueue(page, { minutes: ctx.settings.queue_wait_minutes, log: ctx.log, onEnter: ctx.onQueueEnter, onExit: ctx.onQueueExit });
+    await trySolveCaptcha(page, ctx.log);
     const state = await waitForAny(page, {
       atc: async () => !!(await findFirst(page, ATC, { timeout: 1 })),
       oos: () => textMatches(page, /\b(sold out|out of stock|notify me when it's back)\b/i),
@@ -52,12 +69,12 @@ export default {
   async toReview(page, product, ctx) {
     await page.goto('https://www.target.com/checkout', { waitUntil: 'domcontentloaded', timeout: ctx.timeout * 2 });
     await page.waitForTimeout(1500);
-    if (loggedOut(page)) throw new CheckoutError('not_logged_in', 'Target session expired — run `npm run login -- target`');
+    if (this.loggedOutUrl.test(page.url())) throw new CheckoutError('not_logged_in', 'Target session expired — run `npm run login -- target`');
     if (await textMatches(page, /your cart is empty/i)) throw new CheckoutError('step_failed', 'cart is empty at checkout');
 
     // Target sometimes asks to re-confirm the card number for a new address.
     if (await textMatches(page, /confirm (your )?card number/i)) {
-      throw new CheckoutError('step_failed', 'Target wants the full card number re-entered — complete one manual checkout in this profile first');
+      throw new CheckoutError('step_failed', 'Target wants the full card number re-entered — finish this one by hand');
     }
 
     if (await fillIfPresent(page, CVV, ctx.cvv, { timeout: 3000 })) {
@@ -74,7 +91,7 @@ export default {
 
   async confirm(page, ctx) {
     const res = await waitForAny(page, {
-      ok: async () => /order-confirmation|thankyou|thank-you/i.test(page.url()) || await textMatches(page, /thanks for your order|order (number|#)\s*:?\s*\d/i),
+      ok: () => this.isConfirmed(page),
       declined: () => textMatches(page, /payment (was )?declined|couldn't process your payment|problem with your payment/i),
       oos: () => textMatches(page, /no longer available|out of stock/i),
     }, { timeout: ctx.timeout * 3 });
@@ -86,4 +103,4 @@ export default {
     if (res === 'oos') throw new CheckoutError('unavailable', 'item went out of stock at place-order');
     throw new CheckoutError('step_failed', 'no order confirmation after clicking Place order — CHECK YOUR TARGET ACCOUNT');
   },
-};
+});

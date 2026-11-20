@@ -1,14 +1,15 @@
 #!/usr/bin/env node
-// Offline checkout test — runs the real Target / Best Buy / Pokémon Center
-// flows and the engine's safety guards against MOCK retailer pages served by
-// Playwright request interception. No real site is contacted, nothing is bought,
-// and your config.yaml / data/orders.json are not touched (temp copies are used).
+// Offline end-to-end test — runs the real retailer adapters, engine, monitor,
+// discovery, hand-off + Live view against MOCK retailer pages (Playwright
+// request interception) and a local fake Discord. No real site is contacted,
+// nothing is bought, and your config.yaml / data/ are not touched.
 //
 //   npm run test-checkout
 //
-// Needs Chrome/Chromium (same resolution as checkout: CHECKOUT_BROWSER_PATH or installed Chrome).
+// Needs Chrome/Chromium (CHECKOUT_BROWSER_PATH or installed Chrome).
 
 import { mkdtempSync, writeFileSync, rmSync } from 'fs';
+import { createServer } from 'http';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import yaml from 'js-yaml';
@@ -17,32 +18,55 @@ const TMP = mkdtempSync(join(tmpdir(), 'dropbot-test-'));
 const CONFIG = join(TMP, 'config.yaml');
 process.env.DROPBOT_CONFIG = CONFIG;
 process.env.DROPBOT_DATA_DIR = join(TMP, 'data');
-// Never post to real Discord webhooks from a test, even if .env has them.
-for (const k of ['DROP_ALERTS', 'QUEUE_LIVE', 'CHECKOUT_SUCCESS', 'CHECKOUT_FAIL', 'CANCELLATIONS', 'HEALTH']) {
-  process.env[`DISCORD_${k}`] = '';
-}
+process.env.DROPBOT_NO_CAPTCHA_SOLVER = '1';
 process.env.TARGET_CVV = '123';
 process.env.BESTBUY_CVV = '456';
 process.env.POKEMONCENTER_CVV = '789';
+process.env.COSTCO_CVV = '321';
+process.env.DISCORD_MENTION_USER_ID = '42';
+process.env.DASHBOARD_URL = 'https://dash.example';
+
+// ── Fake Discord: every webhook points here (never at real Discord) ─────────
+const discord = [];
+const hookServer = createServer((req, res) => {
+  const chunks = [];
+  req.on('data', c => chunks.push(c));
+  req.on('end', () => {
+    discord.push({ hook: req.url.split('/').pop(), body: Buffer.concat(chunks).toString('latin1') });
+    res.writeHead(204); res.end();
+  });
+});
+await new Promise(r => hookServer.listen(0, '127.0.0.1', r));
+const HOOK = `http://127.0.0.1:${hookServer.address().port}/hook`;
+for (const k of ['DROP_ALERTS', 'QUEUE_LIVE', 'CHECKOUT_SUCCESS', 'CHECKOUT_FAIL', 'ACTION_NEEDED', 'DRAWINGS', 'DISCOVERY', 'CANCELLATIONS', 'HEALTH']) {
+  process.env[`DISCORD_${k}`] = `${HOOK}/${k.toLowerCase()}`;
+}
+const sent = (hook, text) => discord.some(d => d.hook === hook && (!text || d.body.includes(text)));
 
 const baseConfig = {
-  discord: { drop_alerts: '', checkout_success: '', checkout_fail: '', health: '' },
+  discord: {},
   products: [
-    { retailer: 'target', tcin: '1010892076', label: 'T ETB', max_price: 69.99, auto_checkout: true },
-    { retailer: 'target', tcin: '1010892077', label: 'T Bundle (hangs)', max_price: 39.99, auto_checkout: true },
-    { retailer: 'target', tcin: '1010892078', label: 'T UPC', max_price: 199.99, auto_checkout: true },
-    { retailer: 'target', tcin: '999', label: 'T OOS', max_price: 50, auto_checkout: true },
-    { retailer: 'best-buy', sku: '6580529', label: 'BB ETB', max_price: 69.99, auto_checkout: true },
-    { retailer: 'best-buy', sku: '6580530', label: 'BB Bundle (kill switch)', max_price: 39.99, auto_checkout: true },
-    { retailer: 'pokemon-center', url: 'https://www.pokemoncenter.com/product/699-18442', label: 'PC ETB', max_price: 69.99, auto_checkout: true },
-    { retailer: 'pokemon-center', url: 'https://www.pokemoncenter.com/product/699-18443', label: 'PC unarmed', max_price: 39.99, auto_checkout: false },
+    { retailer: 'target', tcin: '1010892076', label: 'T ETB', max_price: 69.99, action: 'checkout' },
+    { retailer: 'target', tcin: '1010892077', label: 'T Bundle (hangs)', max_price: 39.99, action: 'checkout' },
+    { retailer: 'target', tcin: '1010892078', label: 'T UPC', max_price: 199.99, action: 'checkout' },
+    { retailer: 'target', tcin: '999', label: 'T OOS', max_price: 50, action: 'checkout' },
+    { retailer: 'best-buy', sku: '6580529', label: 'BB ETB', max_price: 69.99, action: 'checkout' },
+    { retailer: 'best-buy', sku: '6580530', label: 'BB Bundle (kill switch)', max_price: 39.99, action: 'checkout' },
+    { retailer: 'pokemon-center', url: 'https://www.pokemoncenter.com/product/699-18442', label: 'PC ETB', max_price: 69.99, action: 'checkout' },
+    { retailer: 'pokemon-center', url: 'https://www.pokemoncenter.com/product/699-18443', label: 'PC notify-only', max_price: 39.99, action: 'notify' },
+    { retailer: 'walmart', url: 'https://www.walmart.com/ip/Pokemon-ETB/111', label: 'WM ETB (queued)', max_price: 59.99, action: 'assist' },
+    { retailer: 'walmart', url: 'https://www.walmart.com/ip/Pokemon-Drawing-Box/222', label: 'WM drawing', max_price: 49.99, action: 'assist' },
+    { retailer: 'costco', url: 'https://www.costco.com/pokemon-etb-2-pack.product.4000111.html', label: 'Costco 2-pack', max_price: 74.99, action: 'checkout' },
+    { retailer: 'sams-club', url: 'https://www.samsclub.com/ip/pokemon-tin/prod999', label: "Sam's tin", max_price: 39.99, action: 'assist' },
   ],
   checkout: {
-    enabled: true, dry_run: true, headless: true,
+    enabled: true, dry_run: true, headless: true, auto_enter_drawings: true,
     max_orders_per_product: 1, max_total_spend: 1000, max_total_overage_pct: 20,
-    retry_cooldown_seconds: 1, step_timeout_seconds: 3, queue_wait_minutes: 1,
+    retry_cooldown_seconds: 1, step_timeout_seconds: 3, queue_wait_minutes: 1, handoff_hold_minutes: 5,
     profile_dir: join(TMP, 'profiles'),
   },
+  monitor: { interval_seconds: 1, max_consecutive_errors: 50 },
+  discovery: { enabled: false, retailers: ['walmart', 'target'], queries: ['pokemon tcg'], must_match: 'pok[eé]mon' },
 };
 const writeConfig = (patch = {}) => {
   const c = structuredClone(baseConfig);
@@ -53,52 +77,91 @@ writeConfig();
 
 // Imports AFTER env + config are in place.
 const { hooks } = await import('../src/checkout/browser.js');
-const { runCheckout, findProduct, onStockObserved, getCheckoutStatus } = await import('../src/checkout/index.js');
+const { runCheckout, runFlow, findProduct, onObserved, getCheckoutStatus, resolveHandoff, getHandoff } = await import('../src/checkout/index.js');
+const { liveFrame, liveInput } = await import('../src/live.js');
+const { discoverOnce, recentDiscoveries } = await import('../src/discovery.js');
+const { startMonitors, stopMonitors, productState, activeHotWindow } = await import('../src/monitor.js');
+const { closeAll, newPage } = await import('../src/session.js');
+const { getAdapter } = await import('../src/retailers/index.js');
 
 // ── Mock retailer pages ─────────────────────────────────────────────────────
-const scenario = { bbTotal: '73.50', onCheckoutPage: null };
+const scenario = { bbTotal: '73.50', walmartQueueUntil: 0, walmartEntered: false, walmartNewListing: false };
 const seen = [];
-const page = (body) => `<!doctype html><html><head><title>mock</title></head><body>${body}</body></html>`;
+const html = (body) => `<!doctype html><html><head><meta charset="utf-8"><title>mock</title></head><body>${body}</body></html>`;
+const addBtn = (label = 'Add to Cart', attrs = '') =>
+  `<button ${attrs} onclick="document.getElementById('m').textContent='Added to cart'">${label}</button><div id="m"></div>`;
 
 function mock(url) {
   const u = new URL(url);
   const p = u.pathname;
-  // Target
   if (u.host === 'www.target.com') {
-    if (p === '/p/-/A-999') return page(`<h1>OOS item</h1><p>Out of stock</p><button>Notify me when it's back</button>`);
-    if (p.startsWith('/p/-/A-')) return page(`<h1>Item</h1><span>$69.99</span>
-      <button data-test="shippingButton" onclick="document.getElementById('m').textContent='Added to cart'">Ship it</button><div id="m"></div>`);
+    if (p === '/p/-/A-999') return html(`<h1>OOS item</h1><p>Out of stock</p><button>Notify me when it's back</button>`);
+    if (p.startsWith('/p/-/A-')) return html(`<h1>Item</h1><span>$69.99</span>${addBtn('Ship it', 'data-test="shippingButton"')}`);
     if (p === '/checkout') {
-      const hang = scenario.targetHang;
-      const total = scenario.targetTotal || '74.21';
-      return page(`<h1>Checkout</h1><label>CVV <input id="creditCardInput-cvv"></label>
-        <div>Order total</div><div>$${total}</div>
-        <button data-test="placeOrderButton" onclick="${hang ? '' : `location.href='/order-confirmation?cvv='+document.getElementById('creditCardInput-cvv').value`}">Place your order</button>`);
+      return html(`<h1>Checkout</h1><label>CVV <input id="creditCardInput-cvv"></label>
+        <div>Order total</div><div>$${scenario.targetTotal || '74.21'}</div>
+        <button data-test="placeOrderButton" onclick="${scenario.targetHang ? '' : `location.href='/order-confirmation?cvv='+document.getElementById('creditCardInput-cvv').value`}">Place your order</button>`);
     }
-    if (p === '/order-confirmation') return page(`<h1>Thanks for your order!</h1><p>Order number: 912000123456</p>`);
+    if (p === '/order-confirmation') return html(`<h1>Thanks for your order!</h1><p>Order number: 912000123456</p>`);
+    if (p === '/cart') return html(`<h1>Cart</h1>`);
+    if (p === '/s') return html(`<a href="/p/pokemon-etb/-/A-1010892076">Pokémon TCG ETB</a> <span>$49.99</span>`);
   }
-  // Best Buy
   if (u.host === 'www.bestbuy.com') {
-    if (p.startsWith('/site/')) return page(`<h1>BB item</h1>
+    if (p.startsWith('/site/')) return html(`<h1>BB item</h1>
       <button class="add-to-cart-button" data-button-state="ADD_TO_CART" id="b">Add to Cart</button><div id="m"></div>
       <script>let n=0;const b=document.getElementById('b');b.onclick=()=>{n++;if(n===1){b.textContent='Please Wait...';b.disabled=true;
       b.setAttribute('data-button-state','PLEASE_WAIT');setTimeout(()=>{b.disabled=false;b.textContent='Add to Cart';
       b.setAttribute('data-button-state','ADD_TO_CART')},1500)}else{document.getElementById('m').textContent='Added to cart'}}</script>`);
     if (p === '/checkout/r/fast-track') {
-      scenario.onCheckoutPage?.();
-      return page(`<h1>Checkout</h1><input id="cvv"><div>Order Total $${scenario.bbTotal}</div>
+      scenario.onBBCheckout?.();
+      return html(`<h1>Checkout</h1><input id="cvv"><div>Order Total $${scenario.bbTotal}</div>
         <button class="button__fast-track" onclick="location.href='/checkout/r/thank-you?cvv='+document.getElementById('cvv').value">Place Your Order</button>`);
     }
-    if (p === '/checkout/r/thank-you') return page(`<h1>Thank you for your order.</h1><p>Order number: BBY01-806123</p>`);
+    if (p === '/checkout/r/thank-you') return html(`<h1>Thank you for your order.</h1><p>Order number: BBY01-806123</p>`);
   }
-  // Pokémon Center
   if (u.host === 'www.pokemoncenter.com') {
-    if (p.startsWith('/product/')) return page(`<h1>PC item</h1><button onclick="document.getElementById('m').textContent='Added to cart'">Add to Cart</button><div id="m"></div>`);
-    if (p === '/cart') return page(`<h1>Cart</h1><a href="/checkout/shipping">Checkout</a>`);
-    if (p === '/checkout/shipping') return page(`<h1>Shipping</h1><button onclick="location.href='/checkout/payment'">Continue to Payment</button>`);
-    if (p === '/checkout/payment') return page(`<h1>Payment</h1><input name="cvv" id="c"><button onclick="location.href='/checkout/review?cvv='+document.getElementById('c').value">Review Order</button>`);
-    if (p === '/checkout/review') return page(`<h1>Review</h1><div>Order Total: $75.10</div><button onclick="location.href='/order-confirmation'">Place Order</button>`);
-    if (p === '/order-confirmation') return page(`<h1>Thank you for your order!</h1><p>Order number: P00012345</p>`);
+    if (p.startsWith('/product/')) return html(`<h1>PC item</h1>${addBtn()}`);
+    if (p === '/cart') return html(`<h1>Cart</h1><a href="/checkout/shipping">Checkout</a>`);
+    if (p === '/checkout/shipping') return html(`<h1>Shipping</h1><button onclick="location.href='/checkout/payment'">Continue to Payment</button>`);
+    if (p === '/checkout/payment') return html(`<h1>Payment</h1><input name="cvv" id="c"><button onclick="location.href='/checkout/review?cvv='+document.getElementById('c').value">Review Order</button>`);
+    if (p === '/checkout/review') return html(`<h1>Review</h1><div>Order Total: $75.10</div><button onclick="location.href='/order-confirmation'">Place Order</button>`);
+    if (p === '/order-confirmation') return html(`<h1>Thank you for your order!</h1><p>Order number: P00012345</p>`);
+  }
+  if (u.host === 'www.walmart.com') {
+    if (p === '/ip/Pokemon-ETB/111') {
+      if (Date.now() < scenario.walmartQueueUntil) {
+        return html(`<h1>You're in line</h1><p>Estimated wait time: 1 minute</p><script>setTimeout(()=>location.reload(),1000)</script>`);
+      }
+      return html(`<h1>Pokémon ETB</h1><span itemprop="price">$54.97</span>${addBtn('Add to cart', 'data-automation-id="atc"')}`);
+    }
+    if (p === '/ip/Pokemon-Drawing-Box/222') {
+      if (scenario.walmartEntered) return html(`<h1>Drawing Box</h1><p>You're entered! Winners are notified by email.</p>`);
+      return html(`<h1>Drawing Box</h1><span>$49.97</span><button id="d">Enter drawing</button>
+        <div role="dialog" id="dlg" style="display:none"><p>Enter this drawing?</p><button id="ok">Enter</button></div>
+        <p id="msg"></p>
+        <script>d.onclick=()=>{dlg.style.display='block'};ok.onclick=async()=>{await fetch('/drawing/submit');dlg.style.display='none';msg.textContent="You're entered!"}</script>`);
+    }
+    if (p === '/drawing/submit') { scenario.walmartEntered = true; return html('ok'); }
+    if (p === '/cart') return html(`<h1>Cart</h1><button onclick="location.href='/checkout'">Continue to checkout</button>`);
+    if (p === '/checkout') return html(`<h1>Checkout</h1><button onclick="location.href='/checkout/review'">Continue</button>`);
+    if (p === '/checkout/review') return html(`<h1>Review</h1><div>Order total</div><div>$55.00</div><button onclick="location.href='/thankyou'">Place order</button>`);
+    if (p === '/thankyou') return html(`<h1>Thanks for your order!</h1><p>Order number 2000111222333</p>`);
+    if (p === '/search') return html(`
+      <div><a href="/ip/Pokemon-ETB/111">Pokemon TCG Elite Trainer Box</a> <span>$54.97</span></div>
+      <div><a href="/ip/LEGO-Castle/555">LEGO Castle</a> <span>$99.00</span></div>
+      ${scenario.walmartNewListing ? '<div><a href="/ip/Pokemon-TCG-New-Booster-Box/444">Pokémon TCG New Booster Box</a> <span>$49.97</span></div>' : ''}`);
+  }
+  if (u.host === 'www.costco.com') {
+    if (p.endsWith('.product.4000111.html')) return html(`<h1>Pokémon ETB 2-pack</h1><span>$69.99</span>
+      <input type="button" id="add-to-cart-btn" value="Add to Cart" onclick="document.getElementById('m').textContent='Added to cart'"><div id="m"></div>`);
+    if (p === '/CheckoutCartDisplayView') return html(`<h1>Cart</h1><button id="shopCartCheckoutSubmitButton" onclick="location.href='/checkout/shipping'">Checkout</button>`);
+    if (p === '/checkout/shipping') return html(`<h1>Shipping</h1><button onclick="location.href='/checkout/payment'">Continue</button>`);
+    if (p === '/checkout/payment') return html(`<h1>Payment</h1><input name="securityCode" id="c"><button onclick="location.href='/checkout/review?cvv='+document.getElementById('c').value">Continue to Review</button>`);
+    if (p === '/checkout/review') return html(`<h1>Review</h1><div>Order Total $79.99</div><button onclick="location.href='/OrderConfirmation'">Place Order</button>`);
+    if (p === '/OrderConfirmation') return html(`<h1>Thank you for your order.</h1><p>Order Number: 1234567890</p>`);
+  }
+  if (u.host === 'www.samsclub.com') {
+    if (p.startsWith('/ip/')) return html(`<h1>Pokémon Tin</h1><span>$34.98</span><p>Out of stock</p>`);
   }
   return null;
 }
@@ -107,8 +170,8 @@ hooks.onContext = async (context) => {
   await context.route('**/*', (route) => {
     const url = route.request().url();
     seen.push(url);
-    const html = mock(url);
-    if (html) return route.fulfill({ status: 200, contentType: 'text/html', body: html });
+    const body = mock(url);
+    if (body) return route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body });
     return route.fulfill({ status: 204, body: '' }); // never hit the network
   });
 };
@@ -116,6 +179,7 @@ hooks.onContext = async (context) => {
 // ── Tests ───────────────────────────────────────────────────────────────────
 let passed = 0, failed = 0;
 async function test(name, fn) {
+  if (process.env.ONLY && !name.includes(process.env.ONLY)) return; // ONLY=Walmart npm run test-checkout
   try {
     await fn();
     console.log(`  ✅ ${name}`);
@@ -128,9 +192,16 @@ async function test(name, fn) {
 function expect(cond, msg) { if (!cond) throw new Error(msg); }
 const P = (r, id) => findProduct(r, id);
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+async function until(fn, ms = 15000) {
+  const end = Date.now() + ms;
+  while (Date.now() < end) { if (await fn()) return true; await sleep(200); }
+  return false;
+}
+const ctxFor = () => ({ settings: { queue_wait_minutes: 1, step_timeout_seconds: 3 }, timeout: 3000, log: () => {} });
 
-console.log('\nCheckout mock tests\n');
+console.log('\nDrop bot mock tests\n');
 
+// ── Checkout core (Target / Best Buy / Pokémon Center) ──
 await test('Target dry run stops at Place order and reads total', async () => {
   const r = await runCheckout(P('target', '1010892076'), { dryRun: true });
   expect(r.status === 'dry_run', `status ${r.status} ${r.error || ''}`);
@@ -138,14 +209,19 @@ await test('Target dry run stops at Place order and reads total', async () => {
   expect(!seen.some(u => u.includes('order-confirmation')), 'dry run must not click Place order');
 });
 
-await test('Live run is refused while config says dry_run (last-moment re-check)', async () => {
+await test('Checkout while global dry_run is on → hands off instead of clicking', async () => {
   const r = await runCheckout(P('target', '1010892076'), { dryRun: false });
-  expect(r.status === 'guard', `status ${r.status}`);
+  expect(r.status === 'handoff', `status ${r.status} ${r.error || ''}`);
+  expect(!seen.some(u => u.includes('order-confirmation')), 'must not place order');
+  expect(await until(() => sent('action_needed', '<@42>'), 3000), 'hand-off alert should @mention you');
+  expect(sent('action_needed', 'dash.example/live?id='), 'hand-off alert should link Live view');
+  await resolveHandoff(r.handoff_id, 'abandoned');
+  expect(!getHandoff(r.handoff_id), 'hand-off should be closed');
 });
 
 writeConfig({ dry_run: false });
 
-await test('Target live checkout succeeds, enters CVV, captures order #', async () => {
+await test('Target full checkout succeeds, enters CVV, captures order #', async () => {
   const r = await runCheckout(P('target', '1010892076'), { dryRun: false });
   expect(r.status === 'success', `status ${r.status} ${r.error || ''}`);
   expect(r.order_number === '912000123456', `order ${r.order_number}`);
@@ -163,12 +239,13 @@ await test('Out-of-stock page → unavailable (no ledger entry)', async () => {
   expect(!getCheckoutStatus().recent.some(a => a.key === 'target:999'), 'unavailable should not be logged');
 });
 
-await test('Order total above max_price + headroom → blocked before clicking', async () => {
+await test('Order total above cap → not bought, handed off for you to review', async () => {
   scenario.bbTotal = '150.00';
   const r = await runCheckout(P('best-buy', '6580529'), { dryRun: false });
   scenario.bbTotal = '73.50';
-  expect(r.status === 'guard' && /order total/.test(r.error), `${r.status} ${r.error}`);
+  expect(r.status === 'handoff' && /order total/.test(r.message), `${r.status} ${r.message || r.error}`);
   expect(!seen.some(u => u.includes('thank-you')), 'must not place order');
+  await resolveHandoff(r.handoff_id, 'abandoned');
 });
 
 await test('Best Buy "Please Wait" queue → waits, re-clicks, orders', async () => {
@@ -176,13 +253,14 @@ await test('Best Buy "Please Wait" queue → waits, re-clicks, orders', async ()
   expect(r.status === 'success', `status ${r.status} ${r.error || ''}`);
   expect(r.order_number === 'BBY01-806123', `order ${r.order_number}`);
   expect(seen.some(u => u.includes('thank-you?cvv=456')), 'CVV not entered');
+  expect(await until(() => sent('queue_live', 'Joined the queue') && sent('queue_live', 'Through the queue'), 3000), 'queue alerts missing');
 });
 
-await test('Kill switch flipped mid-checkout → aborts before Place order', async () => {
-  scenario.onCheckoutPage = () => writeConfig({ dry_run: false, enabled: false });
+await test('Kill switch flipped mid-checkout → aborts, no hand-off', async () => {
+  scenario.onBBCheckout = () => writeConfig({ dry_run: false, enabled: false });
   scenario.bbTotal = '42.50';
   const r = await runCheckout(P('best-buy', '6580530'), { dryRun: false });
-  scenario.onCheckoutPage = null;
+  scenario.onBBCheckout = null;
   scenario.bbTotal = '73.50';
   writeConfig({ dry_run: false });
   expect(r.status === 'guard' && /disabled/.test(r.error), `${r.status} ${r.error}`);
@@ -204,7 +282,7 @@ await test('No confirmation after click → UNCONFIRMED, counts as an order (no 
   expect(again.status === 'guard', `retry status ${again.status}`);
 });
 
-await test('Spend cap blocks before opening a browser', async () => {
+await test('Spend cap blocks before opening a page', async () => {
   writeConfig({ dry_run: false, max_total_spend: 100 });
   const before = seen.length;
   const r = await runCheckout(P('target', '1010892078'), { dryRun: false });
@@ -213,27 +291,127 @@ await test('Spend cap blocks before opening a browser', async () => {
   expect(seen.length === before, 'should not have loaded any page');
 });
 
-await test('Auto trigger ignores unarmed products, disabled checkout, and over-price', async () => {
-  const before = seen.length;
-  onStockObserved(P('pokemon-center', '699-18443'), { price: '$39.99' });  // unarmed
-  onStockObserved(P('target', '1010892078'), { price: '$250.00' });        // > max_price
-  writeConfig({ dry_run: false, enabled: false });
-  onStockObserved(P('target', '1010892078'), { price: '$199.99' });        // disabled
+// ── New retailers ──
+await test('Costco full checkout (cart → continue → CVV → review → place)', async () => {
+  const r = await runCheckout(P('costco', '4000111'), { dryRun: false });
+  expect(r.status === 'success', `status ${r.status} ${r.error || ''}`);
+  expect(r.order_number === '1234567890', `order ${r.order_number}`);
+  expect(r.total === 79.99, `total ${r.total}`);
+  expect(seen.some(u => u.includes('review?cvv=321')), 'CVV not entered');
+});
+
+await test('Monitor check(): in stock / out of stock / queue / drawing', async () => {
+  const st = async (r, id) => {
+    const page = await newPage(r);
+    try { return (await getAdapter(r).check(page, P(r, id), ctxFor())).status; } finally { await page.close(); }
+  };
+  scenario.walmartQueueUntil = Date.now() + 60_000;
+  expect(await st('walmart', '111') === 'queue', 'walmart queue');
+  scenario.walmartQueueUntil = 0;
+  expect(await st('walmart', '111') === 'in_stock', 'walmart in stock');
+  expect(await st('walmart', '222') === 'drawing_open', 'walmart drawing');
+  expect(await st('sams-club', 'prod999') === 'oos', "sam's oos");
+  expect(await st('costco', '4000111') === 'in_stock', 'costco in stock');
+  expect(await st('target', '999') === 'oos', 'target oos');
+});
+
+writeConfig({ dry_run: true });
+
+await test('Walmart drop: joins queue → through → cart → checkout → hand-off', async () => {
+  scenario.walmartQueueUntil = Date.now() + 4000;
+  onObserved(P('walmart', '111'), { status: 'queue', price: 'N/A' });
+  expect(await until(() => getCheckoutStatus().busy.walmart?.in_queue, 8000), 'should report in queue');
+  expect(await until(() => getCheckoutStatus().handoffs.some(h => h.key === 'walmart:111'), 30000), 'no hand-off created');
+  expect(await until(() => sent('queue_live', 'Joined the queue') && sent('queue_live', 'WM ETB'), 3000), 'queue joined alert');
+  expect(sent('queue_live', 'Through the queue'), 'queue passed alert');
+});
+
+await test('Live view: frame + tapping Place order completes the purchase (auto-detected)', async () => {
+  const h = getCheckoutStatus().handoffs.find(x => x.key === 'walmart:111');
+  expect(h, 'no walmart hand-off');
+  const frame = await liveFrame(h.id);
+  expect(frame && frame.jpeg.length > 1000 && frame.width > 0, 'no frame');
+  const page = getHandoff(h.id).page;
+  const box = await page.getByRole('button', { name: /place order/i }).boundingBox();
+  const r = await liveInput(h.id, { type: 'click', x: (box.x + box.width / 2) / frame.width, y: (box.y + box.height / 2) / frame.height });
+  expect(r.ok, r.error);
+  expect(await until(() => !getHandoff(h.id), 12000), 'hand-off should resolve after confirmation');
+  const rec = getCheckoutStatus().recent.find(a => a.key === 'walmart:111');
+  expect(rec.status === 'success' && rec.order_number === '2000111222333', `${rec.status} ${rec.order_number}`);
+  expect(await until(() => sent('checkout_success', 'ORDER PLACED'), 3000), 'success alert');
+});
+
+await test('Sold-out assist run → no hand-off; Live view refuses other sites', async () => {
+  const r = await runFlow(P('sams-club', 'prod999'), { mode: 'assist' });
+  expect(r.status === 'unavailable', `sam's ${r.status}`);
+  const t = await runCheckout(P('target', '1010892078'), { dryRun: false }); // dry_run on → hand-off
+  expect(t.status === 'handoff', `target ${t.status} ${t.error || ''}`);
+  const bad = await liveInput(t.handoff_id, { type: 'goto', url: 'https://evil.example/' });
+  expect(!bad.ok, 'cross-site goto should be refused');
+  const ok = await liveInput(t.handoff_id, { type: 'goto', url: '/cart' });
+  expect(ok.ok, 'same-site goto should work');
+  await resolveHandoff(t.handoff_id, 'abandoned');
+});
+
+await test('Drawing open → bot enters it (dialog confirm) and records the entry', async () => {
+  onObserved(P('walmart', '222'), { status: 'drawing_open' });
+  expect(await until(() => getCheckoutStatus().recent.some(a => a.key === 'walmart:222' && a.status === 'drawing_entered'), 15000), 'not entered');
+  expect(scenario.walmartEntered, 'mock never received the entry');
+  expect(await until(() => sent('drawings', 'Entered drawing'), 3000), 'drawing alert');
+  const n = getCheckoutStatus().recent.filter(a => a.key === 'walmart:222').length;
+  onObserved(P('walmart', '222'), { status: 'drawing_open' });
   await sleep(1500);
-  writeConfig({ dry_run: false });
+  expect(getCheckoutStatus().recent.filter(a => a.key === 'walmart:222').length === n, 'should not re-enter');
+});
+
+await test('Auto trigger ignores notify-only, over-price and disabled', async () => {
+  const before = seen.length;
+  onObserved(P('pokemon-center', '699-18443'), { status: 'in_stock', price: '$39.99' }); // notify-only
+  onObserved(P('target', '1010892078'), { status: 'in_stock', price: '$250.00' });      // > max_price
+  writeConfig({ dry_run: true, enabled: false });
+  onObserved(P('costco', '4000111'), { status: 'in_stock', price: '$69.99' });          // disabled
+  await sleep(1500);
+  writeConfig({ dry_run: true });
   expect(seen.length === before, `pages were loaded (${seen.length - before})`);
 });
 
-await test('Auto trigger fires a checkout when armed + in stock', async () => {
-  writeConfig({ dry_run: true });
-  onStockObserved(P('target', '1010892078'), { price: '$199.99' });
-  await sleep(300);
-  expect(getCheckoutStatus().busy.target, 'should be busy');
-  for (let i = 0; i < 60 && getCheckoutStatus().busy.target; i++) await sleep(250);
-  const last = getCheckoutStatus().recent[0];
-  expect(last.key === 'target:1010892078' && last.status === 'dry_run', `${last.key} ${last.status} ${last.error || ''}`);
+// ── Monitor loop + discovery + schedule ──
+await test('Monitor loop records status for every retailer and alerts on drops', async () => {
+  writeConfig({ dry_run: true, enabled: false });
+  startMonitors();
+  const ok = await until(() =>
+    productState.get('costco:4000111')?.status === 'in_stock' &&
+    productState.get('sams-club:prod999')?.status === 'oos' &&
+    productState.get('walmart:222')?.status === 'drawing_entered' &&
+    productState.get('target:999')?.status === 'oos', 45000);
+  stopMonitors();
+  await sleep(2000);
+  expect(ok, `states: ${[...productState.values()].map(s => `${s.key}=${s.status}`).join(', ')}`);
+  expect(await until(() => sent('drop_alerts', 'Costco 2-pack'), 3000), 'in-stock drop alert');
+});
+
+await test('Discovery: first run learns, later runs alert only on new Pokémon listings', async () => {
+  const first = await discoverOnce();
+  expect(first.length === 0, `first run should seed silently (got ${first.length})`);
+  scenario.walmartNewListing = true;
+  const second = await discoverOnce();
+  expect(second.length === 1 && second[0].id === '444', `got ${JSON.stringify(second.map(x => x.id))}`);
+  expect(second[0].price === '$49.97', `price ${second[0].price}`);
+  expect(recentDiscoveries()[0].id === '444', 'not in recent list');
+  expect(sent('discovery', 'New Booster Box'), 'discovery alert');
+  expect((await discoverOnce()).length === 0, 'should not re-alert');
+});
+
+await test('Hot windows: Walmart Wednesday speeds up polling only on Wednesdays', async () => {
+  const w = [{ retailers: ['walmart'], days: ['wed'], start: '06:00', end: '18:00', timezone: 'America/New_York', interval_seconds: 10 }];
+  expect(activeHotWindow('walmart', w, new Date('2026-11-18T15:00:00Z')), 'Wed 10:00 ET should be hot');
+  expect(!activeHotWindow('walmart', w, new Date('2026-11-19T15:00:00Z')), 'Thu should not be hot');
+  expect(!activeHotWindow('walmart', w, new Date('2026-11-18T03:00:00Z')), 'Tue night ET should not be hot');
+  expect(!activeHotWindow('target', w, new Date('2026-11-18T15:00:00Z')), 'other retailers unaffected');
 });
 
 console.log(`\n${passed} passed, ${failed} failed\n`);
+await closeAll();
+hookServer.close();
 rmSync(TMP, { recursive: true, force: true });
 process.exit(failed ? 1 : 0);

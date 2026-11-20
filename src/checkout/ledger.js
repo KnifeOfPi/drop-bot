@@ -51,9 +51,19 @@ export function recentAttempts(n = 20) {
   try { return read().attempts.slice(-n).reverse(); } catch { return []; }
 }
 
-// "unconfirmed" = Place order was clicked but no confirmation was seen. It counts
-// as an order for every limit so the bot can never double-buy after a timeout.
-const COUNTS_AS_ORDER = new Set(['success', 'unconfirmed']);
+// "unconfirmed" = Place order was clicked but no confirmation was seen.
+// "handoff"     = handed to you to finish and not resolved yet.
+// Both count as orders for every limit so the bot can never double-buy.
+const COUNTS_AS_ORDER = new Set(['success', 'unconfirmed', 'handoff']);
+
+export function recentDrawingEntry(key, hours) {
+  const since = Date.now() - hours * 3600_000;
+  try {
+    return read().attempts.some(a => a.key === key && a.status === 'drawing_entered' && a.ts >= since);
+  } catch {
+    return true; // unreadable ledger: don't spam entries
+  }
+}
 
 export function successfulOrders(key) {
   return read().attempts.filter(a => COUNTS_AS_ORDER.has(a.status) && (!key || a.key === key));

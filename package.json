@@ -1,17 +1,14 @@
 {
   "name": "drop-bot",
   "version": "0.1.0",
-  "description": "Pokemon drop monitor + auto-checkout bot",
+  "description": "Pokemon drop monitor: queues, drawings, auto-checkout and hand-off for Target, Best Buy, Walmart, Costco, Sam's Club, Pokemon Center",
   "type": "module",
   "scripts": {
     "start": "node src/daemon.js",
-    "monitor": "node src/daemon.js",
-    "test-target": "node src/monitors/target.js",
-    "test-bb": "node src/monitors/best-buy.js",
-    "test-pc": "node src/monitors/pokemon-center.js",
     "login": "node src/checkout/login.js",
     "checkout-test": "node src/checkout/cli.js",
-    "test-checkout": "node test/checkout-mock.test.js"
+    "test-checkout": "node test/checkout-mock.test.js",
+    "check": "node src/check.js"
   },
   "dependencies": {
     "js-yaml": "^4.1.0",
