@@ -8,7 +8,8 @@ Phase 1: Product stock monitors + Discord alerts for Pokémon Center, Target, an
 cd /tmp/drop-bot
 npm install
 
-# Edit config.yaml — add your Discord webhook URLs and product watchlist
+cp .env.example .env   # Discord webhook URLs + checkout secrets go here
+# Edit config.yaml — product watchlist and settings (no secrets: it's committed)
 # Then start:
 node src/daemon.js
 ```
@@ -25,11 +26,17 @@ node src/daemon.js
 
 Edit `config.yaml`:
 
-```yaml
-discord:
-  drop_alerts: "https://discord.com/api/webhooks/..."  # REQUIRED
-  health: "https://discord.com/api/webhooks/..."        # optional
+Discord webhook URLs are secrets — set them in `.env` (gitignored), not `config.yaml`:
 
+```bash
+DISCORD_DROP_ALERTS=https://discord.com/api/webhooks/...   # required
+DISCORD_HEALTH=https://discord.com/api/webhooks/...        # optional
+# also: DISCORD_QUEUE_LIVE, DISCORD_CHECKOUT_SUCCESS, DISCORD_CHECKOUT_FAIL, DISCORD_CANCELLATIONS
+```
+
+`.env` values override `discord:` in `config.yaml`. Products and settings stay in `config.yaml`:
+
+```yaml
 products:
   - retailer: target
     tcin: "1010892076"
@@ -99,6 +106,8 @@ npm run test-checkout   # runs every flow + guard against mock retailer pages; b
 ```
 
 ### Dashboard ↔ daemon auth
+
+`DASHBOARD_PASSWORD` must be set in the frontend env — without it the dashboard refuses all requests.
 
 Set the same `DAEMON_TOKEN` in the daemon's `.env` and the frontend env (Vercel).
 The dashboard's `/api` routes now require the login cookie.

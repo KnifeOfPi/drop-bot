@@ -4,17 +4,37 @@ import { readFileSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import yaml from 'js-yaml';
+import './env.js'; // load .env for every entry point (daemon, monitors, CLIs)
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 export const CONFIG_PATH = process.env.DROPBOT_CONFIG || resolve(__dirname, '..', 'config.yaml');
 
 let cachedConfig = null;
 
+// Discord webhook URLs are secrets: keep them in .env, not in config.yaml.
+// DISCORD_<KEY> (e.g. DISCORD_DROP_ALERTS) overrides discord.<key> from config.yaml.
+export const WEBHOOK_KEYS = ['drop_alerts', 'queue_live', 'checkout_success', 'checkout_fail', 'cancellations', 'health'];
+export const webhookEnvName = (key) => `DISCORD_${key.toUpperCase()}`;
+
+/** Webhook keys whose URL currently comes from the environment. */
+export function webhooksFromEnv(discord = {}) {
+  return [...new Set([...WEBHOOK_KEYS, ...Object.keys(discord || {})])]
+    .filter(k => process.env[webhookEnvName(k)]);
+}
+
+function applyEnvOverrides(config) {
+  config = config || {};
+  config.discord = { ...(config.discord || {}) };
+  for (const k of WEBHOOK_KEYS) if (!(k in config.discord)) config.discord[k] = '';
+  for (const k of webhooksFromEnv(config.discord)) config.discord[k] = process.env[webhookEnvName(k)];
+  return config;
+}
+
 export function loadConfig() {
   if (cachedConfig) return cachedConfig;
   try {
     const raw = readFileSync(CONFIG_PATH, 'utf8');
-    const config = yaml.load(raw);
+    const config = applyEnvOverrides(yaml.load(raw));
     cachedConfig = config;
     return config;
   } catch (e) {
@@ -43,7 +63,7 @@ export function getMonitorSettings() {
 // from the dashboard take effect immediately without a daemon restart.
 export function loadConfigFresh() {
   try {
-    return yaml.load(readFileSync(CONFIG_PATH, 'utf8')) || {};
+    return applyEnvOverrides(yaml.load(readFileSync(CONFIG_PATH, 'utf8')));
   } catch (e) {
     console.error(`[config] Fresh read failed: ${e.message}`);
     return null;

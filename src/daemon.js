@@ -6,7 +6,7 @@
 // For systemd/pm2: ensure working directory is /tmp/drop-bot
 
 import './env.js';
-import { loadConfig, CONFIG_PATH } from './config.js';
+import { loadConfig, CONFIG_PATH, webhooksFromEnv, WEBHOOK_KEYS } from './config.js';
 import { sendHealthAlert } from './discord.js';
 import { checkTarget } from './monitors/target.js';
 import { checkBestBuy } from './monitors/best-buy.js';
@@ -27,6 +27,7 @@ const INTERVAL_MS = (settings.interval_seconds || 3) * 1000;
 const MAX_ERRORS = settings.max_consecutive_errors || 10;
 const HTTP_PORT = parseInt(process.env.DAEMON_PORT || '4200', 10);
 const DAEMON_TOKEN = process.env.DAEMON_TOKEN || '';
+const ENV_MARKER = '(set via env)';
 const START_TIME = Date.now();
 
 // In-memory state for API
@@ -153,7 +154,7 @@ async function main() {
 
   if (configuredHooks === 0) {
     console.warn('[daemon] ⚠️ No Discord webhooks configured — alerts will not be sent');
-    console.warn('[daemon] Edit config.yaml and add webhook URLs to the discord: section');
+    console.warn('[daemon] Add webhook URLs to .env as DISCORD_DROP_ALERTS, DISCORD_HEALTH, ... (see .env.example)');
   }
 
   await sendHealthAlert('Drop Bot started — monitoring active ✅');
@@ -208,14 +209,15 @@ async function main() {
       try {
         const raw = readFileSync(CONFIG_PATH, 'utf8');
         const current = yaml.load(raw);
-        // Sanitize: mask webhook URLs
-        if (current.discord) {
-          for (const k of Object.keys(current.discord)) {
-            if (current.discord[k] && typeof current.discord[k] === 'string') {
-              current.discord[k] = current.discord[k].substring(0, 8) + '...';
-            }
+        // Sanitize: mask webhook URLs; hooks supplied by .env are shown as ENV_MARKER
+        current.discord = { ...(current.discord || {}) };
+        for (const k of WEBHOOK_KEYS) if (!(k in current.discord)) current.discord[k] = '';
+        for (const k of Object.keys(current.discord)) {
+          if (current.discord[k] && typeof current.discord[k] === 'string') {
+            current.discord[k] = current.discord[k].substring(0, 8) + '...';
           }
         }
+        for (const k of webhooksFromEnv(current.discord)) current.discord[k] = ENV_MARKER;
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(current));
       } catch (e) {
@@ -237,9 +239,11 @@ async function main() {
 
         // GET /config masks webhook URLs ("https://..."). When the dashboard saves the
         // whole config back, keep the real URL instead of overwriting it with the mask.
-        if (updates.discord && current.discord) {
+        if (updates.discord) {
           for (const [k, v] of Object.entries(updates.discord)) {
-            const real = current.discord[k];
+            // Env-supplied hooks are never written into config.yaml.
+            if (v === ENV_MARKER) { delete updates.discord[k]; continue; }
+            const real = current.discord?.[k];
             if (typeof v === 'string' && typeof real === 'string' && real && v === real.substring(0, 8) + '...') {
               updates.discord[k] = real;
             }

@@ -30,6 +30,8 @@ interface CheckoutSettings {
   queue_wait_minutes?: number;
 }
 
+const ENV_MARKER = "(set via env)";
+
 const CHECKOUT_DEFAULTS: Required<CheckoutSettings> = {
   enabled: false,
   dry_run: true,
@@ -412,13 +414,19 @@ export default function Settings() {
               {Object.entries(config.discord || {}).map(([key, value]) => (
                 <div key={key} className="p-3 sm:p-4 rounded-lg border border-zinc-800 bg-zinc-900/50">
                   <label className="text-[10px] text-zinc-500 uppercase block mb-1">{key.replace(/_/g, " ")}</label>
-                  <input
-                    type="text"
-                    value={value || ""}
-                    onChange={(e) => updateConfig({ discord: { ...config.discord, [key]: e.target.value } })}
-                    placeholder="https://discord.com/api/webhooks/..."
-                    className="w-full px-2 py-1.5 rounded bg-zinc-800 border border-zinc-700 text-sm focus:border-blue-500 outline-none text-xs"
-                  />
+                  {value === ENV_MARKER ? (
+                    <div className="w-full px-2 py-1.5 rounded bg-zinc-900 border border-green-900 text-xs text-green-400">
+                      🔒 Set via daemon .env (DISCORD_{key.toUpperCase()})
+                    </div>
+                  ) : (
+                    <input
+                      type="text"
+                      value={value || ""}
+                      onChange={(e) => updateConfig({ discord: { ...config.discord, [key]: e.target.value } })}
+                      placeholder={`Recommended: DISCORD_${key.toUpperCase()} in the daemon's .env`}
+                      className="w-full px-2 py-1.5 rounded bg-zinc-800 border border-zinc-700 text-sm focus:border-blue-500 outline-none text-xs"
+                    />
+                  )}
                   <p className="text-[10px] text-zinc-600 mt-1">
                     {key === "drop_alerts" ? "Stock alerts" :
                      key === "health" ? "Startup/error pings" :

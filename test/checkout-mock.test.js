@@ -17,6 +17,10 @@ const TMP = mkdtempSync(join(tmpdir(), 'dropbot-test-'));
 const CONFIG = join(TMP, 'config.yaml');
 process.env.DROPBOT_CONFIG = CONFIG;
 process.env.DROPBOT_DATA_DIR = join(TMP, 'data');
+// Never post to real Discord webhooks from a test, even if .env has them.
+for (const k of ['DROP_ALERTS', 'QUEUE_LIVE', 'CHECKOUT_SUCCESS', 'CHECKOUT_FAIL', 'CANCELLATIONS', 'HEALTH']) {
+  process.env[`DISCORD_${k}`] = '';
+}
 process.env.TARGET_CVV = '123';
 process.env.BESTBUY_CVV = '456';
 process.env.POKEMONCENTER_CVV = '789';

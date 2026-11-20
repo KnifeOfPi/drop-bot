@@ -1,5 +1,6 @@
 // Auth middleware — simple password gate for single-user dashboard.
-// Set DASHBOARD_PASSWORD in Vercel env vars.
+// Set DASHBOARD_PASSWORD in Vercel env vars. There is deliberately no fallback:
+// without it the dashboard refuses every request instead of accepting a known password.
 // Stores a signed cookie so you only enter the password once per browser.
 
 import { NextResponse } from "next/server";
@@ -7,7 +8,7 @@ import type { NextRequest } from "next/server";
 
 const COOKIE_NAME = "dropbot_auth";
 const COOKIE_MAX_AGE = 365 * 24 * 60 * 60; // 1 year
-const SECRET = process.env.DASHBOARD_PASSWORD || "mattiscloseted";
+const SECRET = process.env.DASHBOARD_PASSWORD || "";
 
 async function sign(val: string): Promise<string> {
   const encoder = new TextEncoder();
@@ -33,6 +34,13 @@ export async function middleware(req: NextRequest) {
   // Skip auth for static assets
   if (pathname.startsWith("/_next") || pathname.startsWith("/favicon")) {
     return NextResponse.next();
+  }
+
+  // Fail closed when no password is configured.
+  if (!SECRET) {
+    const msg = "Dashboard locked: DASHBOARD_PASSWORD is not set on the server.";
+    if (pathname.startsWith("/api")) return NextResponse.json({ error: msg }, { status: 503 });
+    return new NextResponse(msg, { status: 503, headers: { "Content-Type": "text/plain; charset=utf-8" } });
   }
 
   // If already authenticated, pass through

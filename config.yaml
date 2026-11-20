@@ -3,13 +3,17 @@
 # Phase 1 (M1): Monitors + Discord alerts
 
 # ── Discord webhooks ──────────────────────────────────────────────────────
+# Webhook URLs are secrets — put them in .env, NOT here (this file is committed):
+#   DISCORD_DROP_ALERTS, DISCORD_QUEUE_LIVE, DISCORD_CHECKOUT_SUCCESS,
+#   DISCORD_CHECKOUT_FAIL, DISCORD_CANCELLATIONS, DISCORD_HEALTH
+# Values set in .env override the ones below.
 discord:
-  drop_alerts: "https://discord.com/api/webhooks/1573397921775353856/PcNGgyM6YJqdOFh9TwTin2gn4d1EfrPWIQkY8EvMgeIBdoSNGDF_Yt2NiChaOiL-z3lR"
-  queue_live: "https://discord.com/api/webhooks/1573397921775353856/PcNGgyM6YJqdOFh9TwTin2gn4d1EfrPWIQkY8EvMgeIBdoSNGDF_Yt2NiChaOiL-z3lR"
+  drop_alerts: ""
+  queue_live: ""
   checkout_success: ""
   checkout_fail: ""
   cancellations: ""
-  health: "https://discord.com/api/webhooks/1573397921775353856/PcNGgyM6YJqdOFh9TwTin2gn4d1EfrPWIQkY8EvMgeIBdoSNGDF_Yt2NiChaOiL-z3lR"
+  health: ""
 
 # ── Product watchlist ─────────────────────────────────────────────────────
 # Products to monitor for stock/availability changes.
