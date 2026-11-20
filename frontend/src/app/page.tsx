@@ -95,6 +95,9 @@ export default function Dashboard() {
           <span className="text-zinc-400">Tick #{status?.tick_count ?? 0}</span>
           <span className="text-zinc-600">|</span>
           <span className="text-zinc-500 text-xs">PID {status?.pid ?? "?"}</span>
+          <a href="/settings" className="px-3 py-1 rounded text-xs bg-zinc-800 hover:bg-zinc-700 text-zinc-400 transition-colors">
+            ⚙️ Settings
+          </a>
         </div>
       </header>
 
