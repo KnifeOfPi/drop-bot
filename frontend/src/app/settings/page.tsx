@@ -27,12 +27,37 @@ export default function Settings() {
 
   const fetchConfig = useCallback(async () => {
     try {
-      const res = await fetch("/api/config");
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 3000);
+      const res = await fetch("/api/config", { signal: controller.signal });
+      clearTimeout(timeout);
       if (res.ok) {
         const data = await res.json();
-        if (!data.error) setConfig(data);
+        if (!data.error) {
+          setConfig(data);
+          setError(null);
+          return;
+        }
       }
-    } catch {}
+      throw new Error("Daemon unreachable");
+    } catch {
+      setError("Daemon offline — showing defaults");
+      // Show default config so the UI isn't blank
+      setConfig({
+        products: [
+          { retailer: "target", tcin: "1010892076", label: "30th Celebration ETB", max_price: 69.99 },
+          { retailer: "target", tcin: "1010892077", label: "30th Celebration Booster Bundle", max_price: 39.99 },
+          { retailer: "best-buy", sku: "6580529", label: "30th Celebration ETB", max_price: 69.99 },
+          { retailer: "pokemon-center", url: "https://www.pokemoncenter.com/product/699-18442", label: "30th Celebration ETB", max_price: 69.99 },
+        ],
+        discord: {
+          drop_alerts: "", queue_live: "", checkout_success: "",
+          checkout_fail: "", cancellations: "", health: "",
+        },
+        monitor: { interval_seconds: 3, max_consecutive_errors: 10 },
+        notifications: { throttle_same_product_seconds: 300, throttle_same_retailer_seconds: 10 },
+      });
+    }
   }, []);
 
   useEffect(() => { fetchConfig(); }, [fetchConfig]);
@@ -98,13 +123,7 @@ export default function Settings() {
     updateConfig({ products });
   };
 
-  if (!config) {
-    return (
-      <main className="min-h-screen bg-zinc-950 text-zinc-100 p-6 font-mono flex items-center justify-center">
-        <div className="animate-pulse text-zinc-500">Loading config...</div>
-      </main>
-    );
-  }
+  if (!config) return null; // Should never happen — fallback loaded on fail
 
   return (
     <main className="min-h-screen bg-zinc-950 text-zinc-100 p-6 font-mono">
