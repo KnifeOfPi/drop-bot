@@ -1,0 +1,17 @@
+{
+  "name": "drop-bot",
+  "version": "0.1.0",
+  "description": "Pokemon drop monitor + checkout bot — Phase 1: alerts",
+  "type": "module",
+  "scripts": {
+    "start": "node src/daemon.js",
+    "monitor": "node src/daemon.js",
+    "test-target": "node src/monitors/target.js",
+    "test-bb": "node src/monitors/best-buy.js",
+    "test-pc": "node src/monitors/pokemon-center.js"
+  },
+  "dependencies": {
+    "js-yaml": "^4.1.0",
+    "playwright-core": "^1.48.0"
+  }
+}
