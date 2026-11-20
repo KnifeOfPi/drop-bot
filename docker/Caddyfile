@@ -1,0 +1,5 @@
+# HTTPS in front of the bot API. Caddy gets a certificate for $DOMAIN automatically.
+{$DOMAIN} {
+	encode gzip
+	reverse_proxy bot:4200
+}

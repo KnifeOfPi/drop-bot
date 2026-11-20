@@ -9,6 +9,7 @@ export default defineRetailer({
   id: 'walmart',
   name: 'Walmart',
   loginUrl: 'https://www.walmart.com/account/login',
+  accountUrl: 'https://www.walmart.com/account',
   cvvEnv: 'WALMART_CVV',
   cartUrl: 'https://www.walmart.com/cart',
   loggedOutUrl: /\/account\/login|\/signin/i,

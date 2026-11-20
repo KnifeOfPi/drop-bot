@@ -23,38 +23,34 @@ step it doesn't recognise, total over your cap — it **hands off** instead of g
 stays open, you get an @mention on Discord with a Live view link, and you finish from your phone.
 When the bot sees the order confirmation page it marks the order done by itself.
 
-## Setup (on the machine that runs the bot)
+## Setup — nothing runs on your computer
+
+1. **Put the bot on a server** — Railway (all in the browser) or any Docker VPS.
+   Step-by-step: **[DEPLOY.md](DEPLOY.md)**. Use a residential proxy (`CHECKOUT_PROXY`).
+2. **Point the dashboard at it** — in Vercel set `DAEMON_URL`, `DAEMON_TOKEN`, `DASHBOARD_PASSWORD`.
+3. **🔐 Accounts** (dashboard) → **Sign in** to each store. The store's login page opens in the
+   bot's browser via Live view: tap the email field, type, tap password, type (hidden), enter any
+   2FA code, tap **Done signing in**. Make sure each account has a default shipping address and
+   saved card (Costco / Sam's need an active membership). Save each card's **CVV** on the same page.
+4. **Settings → Products** — add products (store + TCIN / SKU / product URL, max $, mode), or tap
+   **Watch** on a new listing.
+5. Dashboard → **🧪 Test** on one product per store → should show **DRY RUN OK** (empty your cart afterwards).
+6. **Settings → Automation** → **Enable automation**. Leave **Never click Place order** on until you
+   trust it — everything is handed to you to finish.
+
+<details>
+<summary>Running it on your own computer instead</summary>
 
 Needs Node 18+ and Google Chrome.
 
 ```bash
 npm install
-cp .env.example .env      # Discord webhooks, CVVs, DAEMON_TOKEN, DISCORD_MENTION_USER_ID, DASHBOARD_URL
-```
-
-Log in once per store — a Chrome window opens, you sign in, make sure a **default shipping
-address and saved card** are on the account (Costco / Sam's need an active membership), then close it:
-
-```bash
-npm run login -- walmart
-npm run login -- target
-npm run login -- best-buy
-npm run login -- costco
-npm run login -- sams-club
-npm run login -- pokemon-center
-```
-
-Start the bot:
-
-```bash
+cp .env.example .env
 npm start
 ```
 
-Then in the dashboard:
-
-1. **Settings → Products**: add products (store + TCIN / SKU / product URL, max $, mode) — or tap **Watch** on a new listing.
-2. Dashboard → **🧪 Test** on one product per store → should show **DRY RUN OK** (empty your cart afterwards).
-3. **Settings → Automation**: turn on **Enable automation**. Leave **Never click Place order** on until you trust it — everything is handed to you to finish.
+You can still sign in from the dashboard's Accounts page, or with `npm run login -- <store>`.
+</details>
 
 ## Live view (finish purchases from your phone)
 
@@ -92,7 +88,7 @@ logged-in account all day risks flags.
 
 ```bash
 npm start                                      # the bot + dashboard API (port 4200)
-npm run login -- <store>                       # one-time login per store
+npm run login -- <store>                       # (local only) sign in — or use the dashboard's Accounts page
 npm run check -- walmart <product URL>         # what does the bot see on this page right now?
 npm run checkout-test -- target 1010892076     # dry-run checkout from the terminal
 npm run test-checkout                          # offline test suite (mock stores, fake Discord; buys nothing)
@@ -133,7 +129,8 @@ src/
 ├── monitor.js         # one loop per store, hot windows, drop alerts
 ├── discovery.js       # new-listing search
 ├── session.js         # one persistent logged-in Chrome profile per store
-├── live.js            # Live view frames + input
+├── live.js            # Live view frames + input, store sign-in sessions
+├── accounts.js        # sign-in status + CVVs saved from the dashboard
 ├── checkout/
 │   ├── index.js       # engine: modes, queue alerts, hand-off, drawings, guards
 │   ├── helpers.js     # selector/wait helpers, queue/captcha detection, checkout walker
@@ -143,6 +140,7 @@ src/
 ├── retailers/         # base.js + target, best-buy, walmart, costco, sams-club, pokemon-center
 ├── discord.js         # alerts (+ screenshots, @mentions)
 ├── config.js / env.js
-frontend/              # dashboard, Settings, Live view
+frontend/              # dashboard, Accounts, Settings, Live view
+Dockerfile, docker-compose.yml, docker/   # server deployment (see DEPLOY.md)
 test/checkout-mock.test.js
 ```

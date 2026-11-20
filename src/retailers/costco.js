@@ -8,6 +8,7 @@ export default defineRetailer({
   id: 'costco',
   name: 'Costco',
   loginUrl: 'https://www.costco.com/LogonForm',
+  accountUrl: 'https://www.costco.com/AccountInformationView',
   cvvEnv: 'COSTCO_CVV',
   cartUrl: 'https://www.costco.com/CheckoutCartDisplayView',
   loggedOutUrl: /logonform|\/login|\/signin/i,

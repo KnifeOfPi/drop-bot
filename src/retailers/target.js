@@ -26,6 +26,7 @@ export default defineRetailer({
   id: 'target',
   name: 'Target',
   loginUrl: 'https://www.target.com/account',
+  accountUrl: 'https://www.target.com/account',
   cvvEnv: 'TARGET_CVV',
   cartUrl: 'https://www.target.com/cart',
   loggedOutUrl: /\/login|\/signin|login\?/i,

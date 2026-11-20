@@ -8,6 +8,7 @@ export default defineRetailer({
   id: 'sams-club',
   name: "Sam's Club",
   loginUrl: 'https://www.samsclub.com/login',
+  accountUrl: 'https://www.samsclub.com/account',
   cvvEnv: 'SAMSCLUB_CVV',
   cartUrl: 'https://www.samsclub.com/cart',
   loggedOutUrl: /\/login|\/signin|\/account\/signin/i,

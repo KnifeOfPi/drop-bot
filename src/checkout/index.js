@@ -24,6 +24,7 @@ import { RETAILER_ADAPTERS, getAdapter } from '../retailers/index.js';
 import { CheckoutError, parseMoney, readOrderTotal, screenshot, bodyText } from './helpers.js';
 import { recordAttempt, updateAttempt, recentAttempts, successfulOrders, totalSpend, recentDrawingEntry } from './ledger.js';
 import { sendCheckoutAlert } from '../discord.js';
+import { getCvv, markLogin } from '../accounts.js';
 
 export const FLOWS = RETAILER_ADAPTERS;
 
@@ -144,7 +145,7 @@ export async function runFlow(product, { mode = 'assist', trigger = 'manual', ob
   const ctx = {
     settings,
     timeout: settings.step_timeout_seconds * 1000,
-    cvv: process.env[adapter.cvvEnv] || '',
+    cvv: getCvv(product.retailer, adapter.cvvEnv),
     log: (m) => log(key, m),
     onQueueEnter: async () => {
       state.in_queue = true;
@@ -212,10 +213,12 @@ export async function runFlow(product, { mode = 'assist', trigger = 'manual', ob
       const { order_number } = await adapter.confirm(page, ctx);
       const shot = await screenshot(page, `${key}-success`);
       result = { ...base, status: 'success', total, order_number, screenshot: shot };
+      markLogin(product.retailer, true);
     }
   } catch (e) {
     const code = e instanceof CheckoutError ? e.code : 'step_failed';
     const msg = e.message.split('\n')[0];
+    if (code === 'not_logged_in') markLogin(product.retailer, false, msg);
     if (clicked) {
       // After the click only a clear decline / OOS means "no order". Anything else may be a real order.
       const status = (code === 'unavailable' || /declined/i.test(msg)) ? 'failed' : 'unconfirmed';
@@ -354,6 +357,7 @@ export async function runDrawing(product, { trigger = 'manual' } = {}) {
     result = { ...base, status: 'drawing_entered', already: !!res.already, screenshot: await screenshot(page, `${key}-drawing`), message: res.already ? 'Already entered' : 'Entered the drawing' };
   } catch (e) {
     const code = e instanceof CheckoutError ? e.code : 'step_failed';
+    if (code === 'not_logged_in') markLogin(product.retailer, false, e.message.split('\n')[0]);
     if (code === 'unavailable') result = { ...base, status: 'drawing_closed', error: e.message };
     else result = { ...base, status: 'drawing_manual', code, error: e.message.split('\n')[0], screenshot: page ? await screenshot(page, `${key}-drawing-fail`) : null };
   } finally {

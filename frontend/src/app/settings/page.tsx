@@ -370,9 +370,9 @@ export default function Settings() {
             ))}
 
             <div className="p-3 sm:p-4 rounded-lg border border-zinc-800 bg-zinc-900/30 text-[10px] sm:text-xs text-zinc-500 space-y-1">
-              <p className="text-zinc-400 font-medium">Setup (on the machine running the bot)</p>
-              <p>1. <code>npm run login -- walmart</code> — repeat for target, best-buy, costco, sams-club, pokemon-center. Save address + card on each account.</p>
-              <p>2. Put CVVs in <code>.env</code> (see .env.example).</p>
+              <p className="text-zinc-400 font-medium">Setup</p>
+              <p>1. <Link href="/accounts" className="underline">🔐 Accounts</Link> → Sign in to each store you use (address + card saved on the account).</p>
+              <p>2. Same page: save the card CVV for each store.</p>
               <p>3. Dashboard → 🧪 Test on a product per store → expect “DRY RUN OK”.</p>
               <p>4. Turn on automation. Leave “Never click Place order” on until you trust it.</p>
             </div>

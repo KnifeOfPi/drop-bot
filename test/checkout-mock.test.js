@@ -22,7 +22,7 @@ process.env.DROPBOT_NO_CAPTCHA_SOLVER = '1';
 process.env.TARGET_CVV = '123';
 process.env.BESTBUY_CVV = '456';
 process.env.POKEMONCENTER_CVV = '789';
-process.env.COSTCO_CVV = '321';
+delete process.env.COSTCO_CVV; // Costco's CVV is saved the dashboard way (data/secrets.json) below
 process.env.DISCORD_MENTION_USER_ID = '42';
 process.env.DASHBOARD_URL = 'https://dash.example';
 
@@ -60,7 +60,7 @@ const baseConfig = {
     { retailer: 'sams-club', url: 'https://www.samsclub.com/ip/pokemon-tin/prod999', label: "Sam's tin", max_price: 39.99, action: 'assist' },
   ],
   checkout: {
-    enabled: true, dry_run: true, headless: true, auto_enter_drawings: true,
+    enabled: true, dry_run: true, headless: !process.env.TEST_HEADED, auto_enter_drawings: true,
     max_orders_per_product: 1, max_total_spend: 1000, max_total_overage_pct: 20,
     retry_cooldown_seconds: 1, step_timeout_seconds: 3, queue_wait_minutes: 1, handoff_hold_minutes: 5,
     profile_dir: join(TMP, 'profiles'),
@@ -83,9 +83,11 @@ const { discoverOnce, recentDiscoveries } = await import('../src/discovery.js');
 const { startMonitors, stopMonitors, productState, activeHotWindow } = await import('../src/monitor.js');
 const { closeAll, newPage } = await import('../src/session.js');
 const { getAdapter } = await import('../src/retailers/index.js');
+const { openLoginSession, closeLoginSession } = await import('../src/live.js');
+const { setCvv, accountsStatus } = await import('../src/accounts.js');
 
 // ── Mock retailer pages ─────────────────────────────────────────────────────
-const scenario = { bbTotal: '73.50', walmartQueueUntil: 0, walmartEntered: false, walmartNewListing: false };
+const scenario = { bbTotal: '73.50', walmartQueueUntil: 0, walmartEntered: false, walmartNewListing: false, walmartLoggedIn: false };
 const seen = [];
 const html = (body) => `<!doctype html><html><head><meta charset="utf-8"><title>mock</title></head><body>${body}</body></html>`;
 const addBtn = (label = 'Add to Cart', attrs = '') =>
@@ -142,6 +144,16 @@ function mock(url) {
         <script>d.onclick=()=>{dlg.style.display='block'};ok.onclick=async()=>{await fetch('/drawing/submit');dlg.style.display='none';msg.textContent="You're entered!"}</script>`);
     }
     if (p === '/drawing/submit') { scenario.walmartEntered = true; return html('ok'); }
+    if (p === '/account/login') return html(`<h1>Sign in</h1>
+      <input id="email" type="email" placeholder="Email"> <input id="pw" type="password" placeholder="Password">
+      <button id="go" onclick="fetch('/account/login/submit?e='+encodeURIComponent(email.value)+'&p='+encodeURIComponent(pw.value)).then(()=>location.href='/account')">Sign in</button>`);
+    if (p === '/account/login/submit') {
+      scenario.walmartLoggedIn = u.searchParams.get('e') === 'ash@example.com' && u.searchParams.get('p') === 'pikachu!';
+      return html('ok');
+    }
+    if (p === '/account') return scenario.walmartLoggedIn
+      ? html(`<h1>Hi, Ash</h1><a href="#">Purchase history</a> <button>Sign out</button>`)
+      : html(`<script>location.replace('/account/login')</script>`);
     if (p === '/cart') return html(`<h1>Cart</h1><button onclick="location.href='/checkout'">Continue to checkout</button>`);
     if (p === '/checkout') return html(`<h1>Checkout</h1><button onclick="location.href='/checkout/review'">Continue</button>`);
     if (p === '/checkout/review') return html(`<h1>Review</h1><div>Order total</div><div>$55.00</div><button onclick="location.href='/thankyou'">Place order</button>`);
@@ -293,6 +305,8 @@ await test('Spend cap blocks before opening a page', async () => {
 
 // ── New retailers ──
 await test('Costco full checkout (cart → continue → CVV → review → place)', async () => {
+  setCvv('costco', '321'); // saved from the Accounts page, not .env
+  expect(accountsStatus().costco.cvv_set && accountsStatus().costco.cvv_source === 'dashboard', 'cvv not saved');
   const r = await runCheckout(P('costco', '4000111'), { dryRun: false });
   expect(r.status === 'success', `status ${r.status} ${r.error || ''}`);
   expect(r.order_number === '1234567890', `order ${r.order_number}`);
@@ -373,6 +387,33 @@ await test('Auto trigger ignores notify-only, over-price and disabled', async ()
   await sleep(1500);
   writeConfig({ dry_run: true });
   expect(seen.length === before, `pages were loaded (${seen.length - before})`);
+});
+
+// ── Accounts: sign in from the dashboard (Live view) + dashboard-saved CVV ──
+await test('Sign in via Live view: open login page, tap + type, Done → signed in', async () => {
+  const id = await openLoginSession('walmart');
+  const frame = await liveFrame(id);
+  expect(frame?.kind === 'login' && frame.retailer === 'walmart', `frame ${frame?.kind}`);
+  // Find element positions from the real page to simulate phone taps.
+  const sessPage = (await (await import('../src/session.js')).getSession('walmart')).context.pages().find(p => p.url().includes('/account/login'));
+  const at = async (sel) => { const b = await sessPage.locator(sel).boundingBox(); return { x: (b.x + b.width / 2) / frame.width, y: (b.y + b.height / 2) / frame.height }; };
+  expect((await liveInput(id, { type: 'click', ...(await at('#email')) })).ok, 'tap email');
+  await liveInput(id, { type: 'type', text: 'ash@example.com' });
+  await liveInput(id, { type: 'click', ...(await at('#pw')) });
+  await liveInput(id, { type: 'type', text: 'pikachu!' });
+  await liveInput(id, { type: 'click', ...(await at('#go')) });
+  expect(await until(() => scenario.walmartLoggedIn, 5000), 'credentials never reached the store');
+  const loggedIn = await closeLoginSession(id, { check: true });
+  expect(loggedIn === true, `checkLogin → ${loggedIn}`);
+  expect(accountsStatus().walmart.logged_in === true, 'status not saved');
+  expect(!(await liveFrame(id)), 'session should be closed');
+});
+
+await test('Signed-out store is detected', async () => {
+  scenario.walmartLoggedIn = false;
+  const { checkLogin } = await import('../src/live.js');
+  expect(await checkLogin('walmart') === false, 'should be signed out');
+  expect(accountsStatus().walmart.logged_in === false, 'status not saved');
 });
 
 // ── Monitor loop + discovery + schedule ──

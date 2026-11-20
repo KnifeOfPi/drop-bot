@@ -1,0 +1,32 @@
+# Self-hosted option (any VPS with Docker): the bot + Caddy for automatic HTTPS.
+#   1. Point a DNS record (e.g. bot.example.com) at the server
+#   2. Put DOMAIN=bot.example.com and DAEMON_TOKEN=… (plus webhooks etc.) in .env
+#   3. docker compose up -d --build
+services:
+  bot:
+    build: .
+    env_file: .env
+    environment:
+      DAEMON_HOST: 0.0.0.0
+    volumes:
+      - bot-data:/data
+    shm_size: 1gb          # Chrome needs more shared memory than Docker's 64 MB default
+    restart: unless-stopped
+    expose:
+      - "4200"
+
+  caddy:
+    image: caddy:2
+    depends_on: [bot]
+    env_file: .env
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+    restart: unless-stopped
+
+volumes:
+  bot-data:
+  caddy-data:

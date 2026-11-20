@@ -21,7 +21,8 @@ import { join, resolve } from 'path';
 export const hooks = { onContext: null };
 
 export function profileDirFor(retailer, settings) {
-  const base = String(settings.profile_dir || '~/.drop-bot/profiles').replace(/^~(?=$|\/)/, homedir());
+  // CHECKOUT_PROFILE_DIR (set in Docker) keeps logins on the persistent volume.
+  const base = String(process.env.CHECKOUT_PROFILE_DIR || settings.profile_dir || '~/.drop-bot/profiles').replace(/^~(?=$|\/)/, homedir());
   const dir = resolve(base, retailer);
   mkdirSync(dir, { recursive: true });
   return dir;
@@ -48,7 +49,14 @@ export async function launchProfile(retailer, settings, { headless } = {}) {
     headless: headless ?? !!settings.headless,
     viewport: null,
     proxy: proxyFromEnv(),
-    args: ['--disable-blink-features=AutomationControlled', '--start-maximized'],
+    args: [
+      '--disable-blink-features=AutomationControlled',
+      '--start-maximized',
+      // Containers run Chrome as root without a user namespace sandbox.
+      ...(process.env.CHROME_NO_SANDBOX || process.getuid?.() === 0 ? ['--no-sandbox'] : []),
+      // Hosted containers often have a tiny /dev/shm; use /tmp instead so Chrome doesn't crash.
+      ...(process.env.CHROME_NO_SANDBOX ? ['--disable-dev-shm-usage'] : []),
+    ],
     ignoreDefaultArgs: ['--enable-automation'],
   };
 

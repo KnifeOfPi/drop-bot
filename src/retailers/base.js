@@ -147,6 +147,21 @@ export function defineRetailer(spec) {
     throw new CheckoutError('step_failed', `no order confirmation after clicking Place order — CHECK YOUR ${this.name.toUpperCase()} ACCOUNT`);
   };
 
+  /**
+   * Best-effort sign-in check: open the account page; signed out if it bounces to
+   * a login URL or shows a password field. Returns true | false | null (unknown).
+   */
+  r.checkLogin ??= async function (page, ctx) {
+    await page.goto(this.accountUrl || this.loginUrl, { waitUntil: 'domcontentloaded', timeout: ctx.timeout * 3 });
+    await page.waitForTimeout(2500);
+    if (await inQueue(page) || await captchaPresent(page)) return null;
+    if (this.loggedOutUrl.test(page.url())) return false;
+    const pw = await page.locator('input[type="password"]').first().isVisible().catch(() => false);
+    if (pw) return false;
+    if (await textMatches(page, /\b(sign out|log out|logout)\b|\bhi,\s*\w+|my account|account overview|purchase history|order history/i)) return true;
+    return null;
+  };
+
   r.search ??= async function (page, query, ctx) {
     await page.goto(this.searchUrl(query), { waitUntil: 'domcontentloaded', timeout: ctx.timeout * 3 });
     await page.waitForTimeout(2500);

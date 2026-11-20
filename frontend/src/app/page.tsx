@@ -82,6 +82,8 @@ export default function Dashboard() {
     : null;
   const uptime = status ? `${Math.floor(status.uptime_seconds / 3600)}h ${Math.floor((status.uptime_seconds % 3600) / 60)}m` : "—";
   const handoffs = co?.handoffs ?? [];
+  const needsLogin = [...new Set((status?.products ?? []).filter((p) => p.action !== "notify").map((p) => p.retailer))]
+    .filter((r) => status?.accounts?.[r]?.logged_in !== true);
   const busy = Object.entries(co?.busy ?? {});
   const products = (status?.products ?? []).filter((p) => filter === "all" || p.retailer === filter);
   const hot = (s: string) => ["in_stock", "queue", "drawing_open"].includes(s);
@@ -108,6 +110,7 @@ export default function Dashboard() {
                 {modeBadge.text}
               </Link>
             )}
+            <Link href="/accounts" className="hidden sm:inline px-3 py-1 rounded text-xs bg-zinc-800 hover:bg-zinc-700 text-zinc-400">🔐 Accounts</Link>
             <Link href="/settings" className="hidden sm:inline px-3 py-1 rounded text-xs bg-zinc-800 hover:bg-zinc-700 text-zinc-400">⚙️ Settings</Link>
             <button onClick={() => setMenuOpen(!menuOpen)} className="sm:hidden p-2 rounded hover:bg-zinc-800">
               <span className="text-lg">{menuOpen ? "✕" : "☰"}</span>
@@ -117,6 +120,7 @@ export default function Dashboard() {
         {menuOpen && (
           <div className="mt-3 flex flex-col gap-2 sm:hidden border-t border-zinc-800 pt-3">
             <div className="text-xs text-zinc-400">Uptime: {uptime} · PID {status?.pid ?? "?"}</div>
+            <Link href="/accounts" className="w-full py-2 px-3 rounded text-sm bg-zinc-800 text-zinc-300 text-center">🔐 Accounts</Link>
             <Link href="/settings" className="w-full py-2 px-3 rounded text-sm bg-zinc-800 text-zinc-300 text-center">⚙️ Settings</Link>
           </div>
         )}
@@ -128,6 +132,13 @@ export default function Dashboard() {
             ⚠️ Daemon unreachable: {error}
             <span className="text-zinc-500 ml-2">(last: {lastFetch ? new Date(lastFetch).toLocaleTimeString() : "never"})</span>
           </div>
+        )}
+
+        {/* ── Sign-in needed ── */}
+        {needsLogin.length > 0 && (
+          <Link href="/accounts" className="block p-3 rounded-lg border border-amber-700 bg-amber-900/20 text-amber-200 text-xs sm:text-sm">
+            🔐 Sign in to {needsLogin.map((r) => retailerInfo(r)?.name || r).join(", ")} so the bot can queue and check out there →
+          </Link>
         )}
 
         {/* ── Your turn ── */}

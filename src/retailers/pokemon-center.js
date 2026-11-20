@@ -8,6 +8,7 @@ export default defineRetailer({
   id: 'pokemon-center',
   name: 'Pokémon Center',
   loginUrl: 'https://www.pokemoncenter.com/account/login',
+  accountUrl: 'https://www.pokemoncenter.com/account',
   cvvEnv: 'POKEMONCENTER_CVV',
   cartUrl: 'https://www.pokemoncenter.com/cart',
   loggedOutUrl: /\/login|\/sign-in|\/account\/login/i,

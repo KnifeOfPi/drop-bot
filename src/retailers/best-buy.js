@@ -23,6 +23,7 @@ export default defineRetailer({
   id: 'best-buy',
   name: 'Best Buy',
   loginUrl: 'https://www.bestbuy.com/identity/global/signin',
+  accountUrl: 'https://www.bestbuy.com/site/customer/myaccount',
   cvvEnv: 'BESTBUY_CVV',
   cartUrl: 'https://www.bestbuy.com/cart',
   loggedOutUrl: /\/identity\/signin|\/signin/i,

@@ -1,6 +1,7 @@
 "use client";
 
-// Live view — drive a handed-off browser session from your phone.
+// Live view — drive one of the bot's browser tabs from your phone: a checkout
+// hand-off, or signing in to a store (Accounts page).
 // Tap the screenshot to click there; use the box below to type.
 
 import Link from "next/link";
@@ -18,6 +19,9 @@ export default function LiveView() {
   const [note, setNote] = useState<string | null>(null);
   const [tap, setTap] = useState<{ x: number; y: number } | null>(null);
   const [zoom, setZoom] = useState(1);
+  const [kind, setKind] = useState<"handoff" | "login" | null>(null);
+  const [mask, setMask] = useState(false);
+  const [finishing, setFinishing] = useState(false);
   const imgRef = useRef<HTMLImageElement>(null);
   const lastUrl = useRef<string | null>(null);
   const inFlight = useRef(false);
@@ -42,6 +46,13 @@ export default function LiveView() {
         url: decodeURIComponent(res.headers.get("x-frame-url") || ""),
         title: decodeURIComponent(res.headers.get("x-frame-title") || ""),
       });
+      const k = res.headers.get("x-session-kind");
+      if (k === "login" || k === "handoff") {
+        setKind((prev) => {
+          if (prev === null && k === "login") setMask(true); // hide what you type while signing in
+          return k;
+        });
+      }
     } catch {
       /* transient */
     } finally {
@@ -82,6 +93,16 @@ export default function LiveView() {
     else router.push("/");
   };
 
+  const finishLogin = async () => {
+    if (!id) return;
+    setFinishing(true);
+    setNote("Checking that you're signed in…");
+    const r = await postJson("/api/d/accounts/done", { id });
+    setFinishing(false);
+    setNote(r.message || r.error || null);
+    if (!r.error) setTimeout(() => router.push("/accounts"), 1200);
+  };
+
   if (!id) return <main className="min-h-screen bg-zinc-950 text-zinc-400 p-6 font-mono text-sm">No session id. Open Live view from the dashboard.</main>;
 
   return (
@@ -97,7 +118,10 @@ export default function LiveView() {
       {closed ? (
         <div className="p-6 text-sm text-zinc-400 space-y-3">
           <p>This session is closed — it was completed, expired, or the tab was closed.</p>
-          <Link href="/" className="inline-block px-3 py-2 rounded bg-zinc-800 text-zinc-200">Back to dashboard</Link>
+          <div className="flex gap-2">
+            <Link href="/" className="inline-block px-3 py-2 rounded bg-zinc-800 text-zinc-200">Dashboard</Link>
+            <Link href="/accounts" className="inline-block px-3 py-2 rounded bg-zinc-800 text-zinc-200">Accounts</Link>
+          </div>
         </div>
       ) : (
         <div className="p-2 sm:p-4 space-y-3 max-w-4xl mx-auto">
@@ -136,12 +160,17 @@ export default function LiveView() {
             onSubmit={(e) => { e.preventDefault(); if (text) { send({ type: "type", text }); setText(""); } }}
           >
             <input
+              type={mask ? "password" : "text"}
               value={text}
               onChange={(e) => setText(e.target.value)}
               placeholder="Tap a field above, then type here"
               autoComplete="off"
-              className="flex-1 px-3 py-2 rounded bg-zinc-800 border border-zinc-700 text-sm outline-none focus:border-blue-500"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              className="flex-1 min-w-0 px-3 py-2 rounded bg-zinc-800 border border-zinc-700 text-sm outline-none focus:border-blue-500"
             />
+            <button type="button" onClick={() => setMask(!mask)} title={mask ? "Show what I type" : "Hide what I type"} className="px-2 py-2 rounded bg-zinc-800 text-sm">{mask ? "🙈" : "👁"}</button>
             <button type="submit" className="px-3 py-2 rounded bg-blue-700 text-white text-sm">Type</button>
           </form>
           <div className="grid grid-cols-3 gap-2 text-xs">
@@ -152,13 +181,29 @@ export default function LiveView() {
 
           {note && <p className="text-xs text-amber-300">{note}</p>}
 
-          <div className="grid grid-cols-2 gap-2 pt-2 border-t border-zinc-800">
-            <button onClick={() => resolve("success")} className="py-3 rounded-lg bg-green-700 hover:bg-green-600 text-white text-sm font-bold">✅ I bought it</button>
-            <button onClick={() => resolve("abandoned")} className="py-3 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-sm">↩️ Didn&apos;t buy</button>
-          </div>
-          <p className="text-[10px] text-zinc-600">
-            The bot also notices the order confirmation page by itself. Taps go to the bot&apos;s real browser — everything you do here happens on your account.
-          </p>
+          {kind === "login" ? (
+            <>
+              <div className="pt-2 border-t border-zinc-800">
+                <button disabled={finishing} onClick={finishLogin} className="w-full py-3 rounded-lg bg-green-700 hover:bg-green-600 text-white text-sm font-bold disabled:opacity-50">
+                  ✅ Done signing in
+                </button>
+              </div>
+              <p className="text-[10px] text-zinc-600">
+                Tap the email field in the picture, type it in the box, then the same for your password (hidden with 🙈) and any
+                verification code. Tick “keep me signed in” if the store offers it. The login is saved in the bot&apos;s browser on its server.
+              </p>
+            </>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 gap-2 pt-2 border-t border-zinc-800">
+                <button onClick={() => resolve("success")} className="py-3 rounded-lg bg-green-700 hover:bg-green-600 text-white text-sm font-bold">✅ I bought it</button>
+                <button onClick={() => resolve("abandoned")} className="py-3 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-sm">↩️ Didn&apos;t buy</button>
+              </div>
+              <p className="text-[10px] text-zinc-600">
+                The bot also notices the order confirmation page by itself. Taps go to the bot&apos;s real browser — everything you do here happens on your account.
+              </p>
+            </>
+          )}
         </div>
       )}
     </main>

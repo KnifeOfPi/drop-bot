@@ -1,21 +1,88 @@
-// Live view — lets you drive a handed-off browser tab from the dashboard (phone
-// friendly): the dashboard polls a JPEG of the tab and forwards your taps/typing.
+// Live view — drive a bot browser tab from the dashboard (phone friendly):
+// the dashboard polls a JPEG of the tab and forwards your taps / typing.
+//
+// Two kinds of live sessions:
+//   handoff — the bot reached checkout (or got stuck) and handed it to you
+//   login   — you're signing in to a store from the dashboard (Accounts page)
 
 import { getHandoff } from './checkout/index.js';
+import { newPage } from './session.js';
+import { getAdapter } from './retailers/index.js';
+import { markLogin } from './accounts.js';
+import { loadConfigFresh, getCheckoutSettings } from './config.js';
 
-function pageFor(id) {
+const loginSessions = new Map(); // id -> { id, retailer, page, started, expires, timer }
+const LOGIN_MINUTES = 15;
+
+function sessionFor(id) {
   const h = getHandoff(id);
-  if (!h || h.page.isClosed()) return null;
-  return h.page;
+  if (h && !h.page.isClosed()) return { kind: 'handoff', retailer: h.retailer, page: h.page };
+  const l = loginSessions.get(id);
+  if (l && !l.page.isClosed()) return { kind: 'login', retailer: l.retailer, page: l.page };
+  return null;
 }
 
-/** Returns { jpeg: Buffer, width, height, url, title } (width/height in CSS px) or null. */
+/** Open the store's sign-in page in its bot profile. Returns the live session id. */
+export async function openLoginSession(retailer) {
+  const adapter = getAdapter(retailer);
+  if (!adapter) throw new Error('unknown store');
+  for (const s of loginSessions.values()) {
+    if (s.retailer === retailer && !s.page.isClosed()) return s.id; // reuse an open one
+  }
+  const page = await newPage(retailer);
+  await page.goto(adapter.loginUrl, { waitUntil: 'domcontentloaded', timeout: 45000 }).catch(() => {});
+  const id = `login-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+  const s = { id, retailer, page, started: Date.now(), expires: Date.now() + LOGIN_MINUTES * 60_000 };
+  s.timer = setTimeout(() => closeLoginSession(id, { check: true }), LOGIN_MINUTES * 60_000);
+  page.on('close', () => { clearTimeout(s.timer); loginSessions.delete(id); });
+  loginSessions.set(id, s);
+  console.log(`[live] ${retailer}: sign-in session ${id} opened`);
+  return id;
+}
+
+/** Close a sign-in session and (optionally) re-check whether the store now looks signed in. */
+export async function closeLoginSession(id, { check = true } = {}) {
+  const s = loginSessions.get(id);
+  if (!s) return null;
+  loginSessions.delete(id);
+  clearTimeout(s.timer);
+  let result = null;
+  if (check && !s.page.isClosed()) result = await checkLoginOn(s.retailer, s.page).catch(() => null);
+  if (!s.page.isClosed()) await s.page.close().catch(() => {});
+  return result;
+}
+
+async function checkLoginOn(retailer, page) {
+  const adapter = getAdapter(retailer);
+  const settings = getCheckoutSettings(loadConfigFresh() || {});
+  const loggedIn = await adapter.checkLogin(page, { settings, timeout: settings.step_timeout_seconds * 1000, log: () => {} });
+  markLogin(retailer, loggedIn, loggedIn == null ? 'could not tell (captcha or queue on account page)' : null);
+  console.log(`[live] ${retailer}: signed in = ${loggedIn}`);
+  return loggedIn;
+}
+
+/** Check sign-in status in a fresh tab. */
+export async function checkLogin(retailer) {
+  const page = await newPage(retailer);
+  try {
+    return await checkLoginOn(retailer, page);
+  } finally {
+    await page.close().catch(() => {});
+  }
+}
+
+export function liveSessions() {
+  return [...loginSessions.values()].map(({ page, timer, ...s }) => ({ ...s, url: page.isClosed() ? null : page.url() }));
+}
+
+/** Returns { jpeg, width, height, url, title, kind, retailer } or null. */
 export async function liveFrame(id) {
-  const page = pageFor(id);
-  if (!page) return null;
+  const s = sessionFor(id);
+  if (!s) return null;
+  const { page } = s;
   const [width, height] = await page.evaluate(() => [window.innerWidth, window.innerHeight]);
   const jpeg = await page.screenshot({ type: 'jpeg', quality: 60, fullPage: false });
-  return { jpeg, width, height, url: page.url(), title: await page.title().catch(() => '') };
+  return { jpeg, width, height, url: page.url(), title: await page.title().catch(() => ''), kind: s.kind, retailer: s.retailer };
 }
 
 /**
@@ -27,8 +94,9 @@ export async function liveFrame(id) {
  *   { type: 'back' } | { type: 'reload' } | { type: 'goto', url }
  */
 export async function liveInput(id, a) {
-  const page = pageFor(id);
-  if (!page) return { ok: false, error: 'hand-off session is closed' };
+  const s = sessionFor(id);
+  if (!s) return { ok: false, error: 'this session is closed' };
+  const { page } = s;
   const [w, h] = await page.evaluate(() => [window.innerWidth, window.innerHeight]);
   switch (a.type) {
     case 'click': {
@@ -38,7 +106,7 @@ export async function liveInput(id, a) {
       break;
     }
     case 'type':
-      await page.keyboard.type(String(a.text ?? ''), { delay: 30 });
+      await page.keyboard.type(String(a.text ?? ''), { delay: 35 });
       break;
     case 'key':
       if (!/^[A-Za-z0-9]+$/.test(String(a.key))) return { ok: false, error: 'bad key' };
@@ -56,7 +124,8 @@ export async function liveInput(id, a) {
     case 'goto': {
       // Only same-site navigation (e.g. jump to cart) — never arbitrary URLs.
       const target = new URL(String(a.url), page.url());
-      if (target.hostname !== new URL(page.url()).hostname) return { ok: false, error: 'can only navigate within the same site' };
+      const base = (host) => host.split('.').slice(-2).join('.');
+      if (base(target.hostname) !== base(new URL(page.url()).hostname)) return { ok: false, error: 'can only navigate within the same site' };
       await page.goto(target.href).catch(() => {});
       break;
     }

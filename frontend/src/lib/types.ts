@@ -103,6 +103,22 @@ export interface DiscoveryStatus {
   recent: Listing[];
 }
 
+export interface AccountStatus {
+  logged_in: boolean | null;
+  checked_at: number | null;
+  note: string | null;
+  cvv_set: boolean;
+  cvv_source: "env" | "dashboard" | null;
+}
+
+export interface LoginSession {
+  id: string;
+  retailer: string;
+  started: number;
+  expires: number;
+  url: string | null;
+}
+
 export interface DaemonStatus {
   running: boolean;
   uptime_seconds: number;
@@ -111,6 +127,8 @@ export interface DaemonStatus {
   retailers: RetailerHealth[];
   checkout?: CheckoutStatus;
   discovery?: DiscoveryStatus;
+  accounts?: Record<string, AccountStatus>;
+  login_sessions?: LoginSession[];
 }
 
 export const RETAILERS: Array<{ id: string; name: string; emoji: string; color: string; idField: "tcin" | "sku" | "url"; idLabel: string }> = [

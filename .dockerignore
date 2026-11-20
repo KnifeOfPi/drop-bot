@@ -1,0 +1,8 @@
+node_modules
+frontend
+data
+test
+.git
+.env
+*.log
+research-*.mjs

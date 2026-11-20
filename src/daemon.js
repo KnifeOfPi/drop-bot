@@ -22,13 +22,24 @@ import { sendHealthAlert } from './discord.js';
 import { getCheckoutStatus, runFlow, runDrawing, findProduct, resolveHandoff, isBusy } from './checkout/index.js';
 import { startMonitors, stopMonitors, productState, retailerHealth } from './monitor.js';
 import { startDiscovery, stopDiscovery, discoverOnce, recentDiscoveries, discoveryState, findDiscovery, markWatched } from './discovery.js';
-import { liveFrame, liveInput } from './live.js';
+import { liveFrame, liveInput, openLoginSession, closeLoginSession, checkLogin, liveSessions } from './live.js';
+import { accountsStatus, setCvv } from './accounts.js';
+import { RETAILER_ADAPTERS } from './retailers/index.js';
 import { getAdapter } from './retailers/index.js';
 import { openSessions, closeAll } from './session.js';
 
 const config = loadConfig();
 const HTTP_PORT = parseInt(process.env.DAEMON_PORT || '4200', 10);
 const DAEMON_TOKEN = process.env.DAEMON_TOKEN || '';
+// Listen on localhost only unless DAEMON_HOST says otherwise (e.g. 0.0.0.0 in Docker).
+const DAEMON_HOST = process.env.DAEMON_HOST || '127.0.0.1';
+const LOOPBACK = ['127.0.0.1', 'localhost', '::1'].includes(DAEMON_HOST);
+if (!LOOPBACK && DAEMON_TOKEN.length < 16) {
+  console.error('[daemon] Refusing to listen on a public interface without DAEMON_TOKEN (16+ characters).');
+  console.error('[daemon] Anyone who can reach this API could change settings, place orders and drive your logged-in browsers.');
+  process.exit(1);
+}
+const CVV_ENVS = Object.fromEntries(Object.entries(RETAILER_ADAPTERS).map(([id, a]) => [id, a.cvvEnv]));
 const ENV_MARKER = '(set via env)';
 const START_TIME = Date.now();
 let running = true;
@@ -87,6 +98,8 @@ function statusBody() {
       busy: isBusy(r), session_open: openSessions().includes(r),
     })),
     checkout: getCheckoutStatus(),
+    accounts: accountsStatus(CVV_ENVS),
+    login_sessions: liveSessions(),
     discovery: { ...getDiscoverySettings(cfg), ...discoveryState, recent: recentDiscoveries(25) },
   };
 }
@@ -157,11 +170,42 @@ async function route(req, res, url) {
     return send(res, ok ? 200 : 404, ok ? { ok: true } : { error: 'hand-off not found (already closed?)' });
   }
 
+  // ── Accounts (sign in from the dashboard) ──
+  if (path === '/accounts/login' && method === 'POST') {
+    const { retailer } = await readJson(req);
+    if (!getAdapter(retailer)) return send(res, 400, { error: 'unknown store' });
+    const id = await openLoginSession(retailer);
+    return send(res, 200, { ok: true, id, message: `Sign-in page open for ${getAdapter(retailer).name}` });
+  }
+
+  if (path === '/accounts/done' && method === 'POST') {
+    const { id } = await readJson(req);
+    const loggedIn = await closeLoginSession(id, { check: true });
+    return send(res, 200, { ok: true, logged_in: loggedIn,
+      message: loggedIn === true ? 'Signed in ✅' : loggedIn === false ? 'Still looks signed out' : 'Saved — couldn\'t confirm sign-in (try Check)' });
+  }
+
+  if (path === '/accounts/check' && method === 'POST') {
+    const { retailer } = await readJson(req);
+    if (!getAdapter(retailer)) return send(res, 400, { error: 'unknown store' });
+    if (isBusy(retailer)) return send(res, 409, { error: 'store is busy — try again in a moment' });
+    const loggedIn = await checkLogin(retailer);
+    return send(res, 200, { ok: true, logged_in: loggedIn,
+      message: loggedIn === true ? 'Signed in ✅' : loggedIn === false ? 'Signed out' : "Couldn't tell (captcha/queue on the account page)" });
+  }
+
+  if (path === '/accounts/cvv' && method === 'POST') {
+    const { retailer, cvv } = await readJson(req);
+    setCvv(retailer, cvv);
+    return send(res, 200, { ok: true, message: cvv ? 'CVV saved on the server' : 'CVV removed' });
+  }
+
   if (path === '/live/frame' && method === 'GET') {
     const frame = await liveFrame(url.searchParams.get('id'));
-    if (!frame) return send(res, 404, { error: 'hand-off session is closed' });
+    if (!frame) return send(res, 404, { error: 'session is closed' });
     res.writeHead(200, {
       'Content-Type': 'image/jpeg', 'Cache-Control': 'no-store',
+      'X-Session-Kind': frame.kind, 'X-Session-Retailer': frame.retailer,
       'X-Frame-Width': String(frame.width), 'X-Frame-Height': String(frame.height),
       'X-Frame-Url': encodeURIComponent(frame.url), 'X-Frame-Title': encodeURIComponent(frame.title),
     });
@@ -240,7 +284,7 @@ async function main() {
       if (!res.headersSent) send(res, 400, { error: e.message });
     }
   });
-  server.listen(HTTP_PORT, () => console.log(`[daemon] HTTP API on port ${HTTP_PORT}`));
+  server.listen(HTTP_PORT, DAEMON_HOST, () => console.log(`[daemon] HTTP API on ${DAEMON_HOST}:${HTTP_PORT}${DAEMON_TOKEN ? ' (token required)' : ''}`));
 
   const shutdown = async () => {
     console.log('\n[daemon] Shutting down...');
