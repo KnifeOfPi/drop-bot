@@ -106,6 +106,7 @@ export default function Accounts() {
         <div className="p-3 rounded-lg border border-zinc-800 bg-zinc-900/40 text-[11px] sm:text-xs text-zinc-400 space-y-1">
           <p><b className="text-zinc-200">Sign in</b> opens the store&apos;s login page in the bot&apos;s browser. Type your email, password and any 2FA code in Live view — the login is saved on the bot&apos;s server and reused for queues and checkout.</p>
           <p>Make sure each account has a <b className="text-zinc-200">default shipping address and saved card</b>. Costco and Sam&apos;s need an active membership.</p>
+          <p>Use <b className="text-zinc-200">password</b> sign-in — passkeys can&apos;t reach your phone from the server&apos;s browser.</p>
         </div>
 
         {/* ── Proxy ── */}

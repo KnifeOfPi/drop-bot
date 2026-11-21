@@ -191,6 +191,8 @@ export default function LiveView() {
               <p className="text-[10px] text-zinc-600">
                 Tap the email field in the picture, type it in the box, then the same for your password (hidden with 🙈) and any
                 verification code. Tick “keep me signed in” if the store offers it. The login is saved in the bot&apos;s browser on its server.
+                <br /><b className="text-amber-300">Passkeys and “sign in with your phone” can&apos;t work here</b> — this browser runs on the server,
+                not on your device. Choose password (and a text/email code) instead.
               </p>
             </>
           ) : (
