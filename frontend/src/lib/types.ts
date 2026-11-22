@@ -152,6 +152,7 @@ export function fmtBytes(n: number | null | undefined) {
 
 export interface DaemonStatus {
   running: boolean;
+  pause?: { paused: boolean; since: number | null };
   uptime_seconds: number;
   pid: number;
   products: ProductStatus[];

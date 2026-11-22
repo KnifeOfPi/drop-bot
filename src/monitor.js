@@ -45,6 +45,13 @@ async function retailerLoop(retailer) {
   const health = retailerHealth[retailer];
   while (running) {
     const config = loadConfigFresh() || {};
+    if (config.paused) {
+      // Paused from the dashboard: don't open a browser or load anything.
+      health.active = false;
+      health.errors = 0;
+      await sleep(3000);
+      continue;
+    }
     const settings = getMonitorSettings(config);
     const csettings = getCheckoutSettings(config);
     const products = (config.products || []).filter(p => p.retailer === retailer && productId(p));
@@ -59,7 +66,7 @@ async function retailerLoop(retailer) {
         const page = await monitorPage(retailer);
         const ctx = { settings: csettings, timeout: csettings.step_timeout_seconds * 1000, log: (m) => console.log(`[monitor] ${retailer}: ${m}`) };
         for (const product of products) {
-          if (!running || isBusy(retailer)) break;
+          if (!running || isBusy(retailer) || loadConfigFresh()?.paused) break;
           let obs;
           try {
             obs = await adapter.check(page, product, ctx);

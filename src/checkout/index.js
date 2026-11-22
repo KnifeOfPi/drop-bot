@@ -76,7 +76,7 @@ async function handleObservation(product, obs) {
   const config = loadConfigFresh();
   if (!config) return;
   const settings = getCheckoutSettings(config);
-  if (!settings.enabled) return;
+  if (!settings.enabled || config.paused) return;
 
   const live = findLiveProduct(config, product.retailer, productId(product));
   if (!live) return;

@@ -72,6 +72,21 @@ export default function Dashboard() {
     fetchStatus();
   };
 
+  const paused = !!status?.pause?.paused;
+  const [pausing, setPausing] = useState(false);
+  const togglePause = async () => {
+    const next = !paused;
+    if (next && !window.confirm("Pause the bot? Every store browser closes — no watching, queues, checkout or proxy data until you resume. Open hand-offs are closed."))
+      return;
+    if (!next && !window.confirm("Resume the bot? Store browsers reopen and watching (and proxy data use) starts again."))
+      return;
+    setPausing(true);
+    const r = await postJson("/api/d/pause", { paused: next });
+    setPausing(false);
+    setMsg((m) => ({ ...m, pause: r.message || r.error || "" }));
+    fetchStatus();
+  };
+
   const co = status?.checkout;
   const disc = status?.discovery;
   const mode = !co ? null : !co.enabled ? "off" : co.dry_run ? "dry" : "live";
@@ -105,7 +120,17 @@ export default function Dashboard() {
           <div className="flex items-center gap-2 sm:gap-4 text-sm">
             <span className={`w-2 h-2 rounded-full ${status?.running ? "bg-green-400 animate-pulse" : "bg-red-400"}`} />
             <span className="hidden sm:inline text-zinc-400">{status?.running ? `Up ${uptime}` : "Offline"}</span>
-            {modeBadge && (
+            {status && (
+              <button
+                onClick={togglePause}
+                disabled={pausing}
+                className={`px-2 sm:px-3 py-1 rounded text-[10px] sm:text-xs font-bold whitespace-nowrap disabled:opacity-50 ${
+                  paused ? "bg-green-700 hover:bg-green-600 text-white" : "bg-zinc-800 hover:bg-zinc-700 text-zinc-200"}`}
+              >
+                {pausing ? "…" : paused ? "▶ Resume" : "⏸ Pause"}
+              </button>
+            )}
+            {modeBadge && !paused && (
               <Link href="/settings?tab=checkout" className={`px-2 py-0.5 rounded text-[10px] sm:text-xs font-bold whitespace-nowrap ${modeBadge.cls}`}>
                 {modeBadge.text}
               </Link>
@@ -134,8 +159,26 @@ export default function Dashboard() {
           </div>
         )}
 
+        {/* ── Paused ── */}
+        {paused && (
+          <div className="p-3 sm:p-4 rounded-lg border-2 border-zinc-600 bg-zinc-900 flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="font-bold text-sm sm:text-base">⏸ Bot paused</p>
+              <p className="text-[11px] sm:text-xs text-zinc-400 mt-0.5">
+                Every store browser is closed — no watching, queues, checkout, drawings or proxy data.
+                {status?.pause?.since ? ` Paused ${ago(status.pause.since)}.` : ""}
+              </p>
+              {msg.pause && <p className="text-[10px] text-blue-300 mt-1">{msg.pause}</p>}
+            </div>
+            <button onClick={togglePause} disabled={pausing} className="shrink-0 px-3 py-2 rounded-lg bg-green-700 hover:bg-green-600 text-white text-xs sm:text-sm font-bold disabled:opacity-50">
+              ▶ Resume
+            </button>
+          </div>
+        )}
+        {!paused && msg.pause && <p className="text-[10px] text-blue-300">{msg.pause}</p>}
+
         {/* ── Sign-in needed ── */}
-        {needsLogin.length > 0 && (
+        {!paused && needsLogin.length > 0 && (
           <Link href="/accounts" className="block p-3 rounded-lg border border-amber-700 bg-amber-900/20 text-amber-200 text-xs sm:text-sm">
             🔐 Sign in to {needsLogin.map((r) => retailerInfo(r)?.name || r).join(", ")} so the bot can queue and check out there →
           </Link>

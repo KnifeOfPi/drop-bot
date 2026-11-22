@@ -102,7 +102,7 @@ export function startDiscovery() {
     await new Promise(r => setTimeout(r, 20_000)); // let monitors open their sessions first
     while (running) {
       const s = getDiscoverySettings(loadConfigFresh() || {});
-      if (s.enabled) {
+      if (s.enabled && !loadConfigFresh()?.paused) {
         try { await discoverOnce(); } catch (e) { console.error(`[discovery] ${e.message}`); }
       }
       await new Promise(r => setTimeout(r, Math.max(2, s.interval_minutes) * 60_000));

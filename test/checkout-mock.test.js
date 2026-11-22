@@ -538,6 +538,27 @@ await test('Data meter counts bytes per store and per activity (watching vs chec
   expect(bw.days.length >= 1 && bw.days.at(-1).total === bw.total_today, 'daily history');
 });
 
+await test('Pause closes every store browser, stops all loading, and Resume brings watching back', async () => {
+  const { setPaused, isPaused } = await import('../src/pause.js');
+  const { openSessions } = await import('../src/session.js');
+  writeConfig({ dry_run: true, enabled: true });
+  await setPaused(true);
+  expect(isPaused() && openSessions().length === 0, `sessions still open: ${openSessions()}`);
+  const before = seen.length;
+  startMonitors();
+  onObserved(P('costco', '4000111'), { status: 'in_stock', price: '$69.99' }); // would normally start a flow
+  await sleep(5000);
+  expect(seen.length === before, `pages loaded while paused (${seen.length - before})`);
+  expect(openSessions().length === 0, `browsers opened while paused: ${openSessions()}`);
+  await setPaused(false);
+  writeConfig({ dry_run: true, enabled: false }); // resume watching only (no flows) for the check
+  const t0 = Date.now();
+  const back = await until(() => [...productState.values()].some(st => st.last_checked > t0), 20000);
+  stopMonitors();
+  await sleep(1500);
+  expect(back, 'watching did not resume');
+});
+
 console.log(`\n${passed} passed, ${failed} failed\n`);
 await closeAll();
 hookServer.close();

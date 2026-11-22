@@ -18,7 +18,7 @@ const ALLOWED: Record<string, string[]> = {
   GET: ["live/frame"],
   POST: [
     "flow/start", "checkout/test", "drawing/enter", "handoff/resolve", "live/input", "discovery/run", "discovery/watch",
-    "accounts/login", "accounts/done", "accounts/check", "accounts/cvv", "accounts/proxy", "accounts/proxy/test",
+    "accounts/login", "accounts/done", "accounts/check", "accounts/cvv", "accounts/proxy", "accounts/proxy/test", "pause",
   ],
 };
 

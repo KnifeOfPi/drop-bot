@@ -27,6 +27,7 @@ import { liveFrame, liveInput, openLoginSession, closeLoginSession, checkLogin, 
 import { accountsStatus, setCvv, setProxyUrl, getProxyUrl, proxyStatus } from './accounts.js';
 import { publicIp } from './checkout/browser.js';
 import { bandwidthStatus } from './bandwidth.js';
+import { setPaused, pauseStatus, isPaused } from './pause.js';
 import { RETAILER_ADAPTERS } from './retailers/index.js';
 import { getAdapter } from './retailers/index.js';
 import { openSessions, closeAll, closeSession } from './session.js';
@@ -100,6 +101,7 @@ function statusBody() {
   const active = new Set((cfg.products || []).map(p => p.retailer));
   return {
     running,
+    pause: pauseStatus(cfg),
     uptime_seconds: Math.floor((Date.now() - START_TIME) / 1000),
     pid: process.pid,
     products,
@@ -119,9 +121,28 @@ function statusBody() {
 
 // ── Routes ─────────────────────────────────────────────────────────────────
 
+// Actions that open a store browser — refused while paused.
+const NEEDS_BROWSER = new Set([
+  '/checkout/test', '/flow/start', '/drawing/enter', '/discovery/run',
+  '/accounts/login', '/accounts/check', '/accounts/proxy/test',
+]);
+
 async function route(req, res, url) {
   const path = url.pathname;
   const method = req.method;
+
+  // ── Pause switch: { paused: true | false } ──
+  if (path === '/pause' && method === 'POST') {
+    const { paused } = await readJson(req);
+    const st = await setPaused(!!paused);
+    return send(res, 200, { ok: true, ...st, message: st.paused
+      ? 'Paused — every store browser is closed. No store traffic or proxy data until you resume.'
+      : 'Resumed — the stores reopen on the next pass (a few seconds).' });
+  }
+
+  if (method === 'POST' && NEEDS_BROWSER.has(path) && isPaused()) {
+    return send(res, 409, { error: 'The bot is paused — tap Resume on the dashboard first.' });
+  }
 
   if (path === '/status' && method === 'GET') return send(res, 200, statusBody());
 
