@@ -10,7 +10,7 @@
 import { readFileSync, writeFileSync, existsSync, chmodSync } from 'fs';
 import { resolve } from 'path';
 import { DATA_DIR } from './checkout/ledger.js';
-import { RETAILERS } from './config.js';
+import { RETAILERS, getCheckoutSettings } from './config.js';
 
 const ACCOUNTS = resolve(DATA_DIR, 'accounts.json');
 const SECRETS = resolve(DATA_DIR, 'secrets.json');
@@ -119,4 +119,11 @@ export function proxyStatus() {
   } catch {
     return { set: true, source: process.env.CHECKOUT_PROXY ? 'env' : 'dashboard', server: '(unparseable)', user: null };
   }
+}
+
+/** Stores whose browser traffic goes through the proxy. */
+export function proxiedStoreSet(cfg) {
+  if (!getProxyUrl()) return new Set();
+  const picked = getCheckoutSettings(cfg || {}).proxy_stores;
+  return new Set(Array.isArray(picked) ? picked : RETAILERS);
 }

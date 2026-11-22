@@ -6,7 +6,7 @@
 # that copy holds your real settings and is what the dashboard edits (git ignores
 # it, so updates never overwrite your settings). Changes apply on the next pass.
 
-config_version: 2
+config_version: 3
 
 # ── Discord webhooks ──────────────────────────────────────────────────────
 # Webhook URLs are secrets — put them in .env, NOT here (this file is committed):
@@ -124,10 +124,16 @@ checkout:
   profile_dir: ~/.drop-bot/profiles
 
 # ── Monitor ──────────────────────────────────────────────────────────────
-# Each retailer is checked in its own logged-in browser. Keep the normal interval
-# modest so accounts don't get flagged; hot windows poll faster when drops happen.
+# Each retailer is checked in its own logged-in browser session.
+# Light checks (default) download one small response per product instead of a
+# full page; a full Chrome check only runs to confirm something live, or at most
+# every full_check_minutes when a light check can't tell.
 monitor:
-  interval_seconds: 30
+  interval_seconds: 60
+  watch_mode: lite              # lite | full
+  full_check_minutes: 15
+  hot_full_check_minutes: 3
+  daily_proxy_limit_mb: 500     # auto-pause when today's proxy data hits this (0 = no limit)
   max_consecutive_errors: 10
   hot_windows:
     - name: Walmart Wednesday drops
@@ -148,7 +154,7 @@ monitor:
 # ── Discovery: find new Pokémon listings ──────────────────────────────────
 discovery:
   enabled: true
-  interval_minutes: 15
+  interval_minutes: 60
   queries:
     - pokemon trading card game
     - pokemon tcg

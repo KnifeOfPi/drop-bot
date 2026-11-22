@@ -20,6 +20,7 @@ export default function Accounts() {
   const [proxyInput, setProxyInput] = useState("");
   const [proxyMsg, setProxyMsg] = useState<string | null>(null);
   const [proxyBusy, setProxyBusy] = useState(false);
+  const [limitInput, setLimitInput] = useState("");
 
   const load = useCallback(async () => {
     try {
@@ -79,6 +80,15 @@ export default function Accounts() {
     const r = await postJson("/api/d/accounts/proxy/test", {});
     setProxyBusy(false);
     setProxyMsg(r.message || r.error || null);
+  };
+
+  const saveLimit = async () => {
+    const mb = Math.max(0, Math.round(Number(limitInput)));
+    if (Number.isNaN(mb)) return;
+    const res = await fetch("/api/config", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ monitor: { daily_proxy_limit_mb: mb } }) });
+    setProxyMsg(res.ok ? (mb ? `Daily limit set to ${mb} MB` : "Daily limit off") : "Couldn't save");
+    setLimitInput("");
+    load();
   };
 
   const setProxyStores = async (stores: string[] | null) => {
@@ -163,9 +173,25 @@ export default function Accounts() {
               <div className="flex items-center justify-between mb-1">
                 <p className="text-[10px] text-zinc-500 uppercase">Data used today</p>
                 <p className="text-[10px] text-zinc-400">
-                  proxy <b className="text-zinc-200">{fmtBytes(bw.proxy_today)}</b> · all {fmtBytes(bw.total_today)}
+                  proxy <b className="text-zinc-200">{fmtBytes(bw.proxy_today)}</b>{bw.limit_mb ? ` of ${bw.limit_mb} MB` : ""} · all {fmtBytes(bw.total_today)}
                 </p>
               </div>
+              <p className="text-[10px] text-zinc-400 mb-1">
+                Last hour via proxy: <b className="text-zinc-200">{fmtBytes(bw.proxy_last_hour)}</b>
+                {" "}(≈ {fmtBytes((bw.proxy_last_hour || 0) * 24)}/day at this pace)
+              </p>
+              <form className="flex items-center gap-2 mb-2" onSubmit={(e) => { e.preventDefault(); saveLimit(); }}>
+                <label className="text-[10px] text-zinc-500 uppercase shrink-0">Daily limit (MB)</label>
+                <input
+                  inputMode="numeric"
+                  value={limitInput}
+                  onChange={(e) => setLimitInput(e.target.value.replace(/\D/g, ""))}
+                  placeholder={bw.limit_mb ? String(bw.limit_mb) : "off"}
+                  className="w-20 px-2 py-1 rounded bg-zinc-800 border border-zinc-700 text-xs outline-none focus:border-blue-500"
+                />
+                <button type="submit" disabled={!limitInput} className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-xs text-zinc-300 disabled:opacity-40">Set</button>
+                <span className="text-[10px] text-zinc-600">pauses the bot when reached · 0 = off</span>
+              </form>
               <table className="w-full text-[10px] sm:text-xs">
                 <thead className="text-zinc-600">
                   <tr><th className="text-left font-normal">Store</th><th className="text-right font-normal">Watching</th><th className="text-right font-normal">Search</th><th className="text-right font-normal">Checkout/sign-in</th></tr>

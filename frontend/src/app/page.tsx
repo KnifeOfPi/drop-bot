@@ -163,10 +163,14 @@ export default function Dashboard() {
         {paused && (
           <div className="p-3 sm:p-4 rounded-lg border-2 border-zinc-600 bg-zinc-900 flex items-center justify-between gap-3">
             <div className="min-w-0">
-              <p className="font-bold text-sm sm:text-base">⏸ Bot paused</p>
+              <p className="font-bold text-sm sm:text-base">
+                {status?.pause?.reason === "data_limit" ? "⏸ Paused — daily proxy data limit reached" : "⏸ Bot paused"}
+              </p>
               <p className="text-[11px] sm:text-xs text-zinc-400 mt-0.5">
                 Every store browser is closed — no watching, queues, checkout, drawings or proxy data.
-                {status?.pause?.since ? ` Paused ${ago(status.pause.since)}.` : ""}
+                {status?.pause?.reason === "data_limit"
+                  ? ` Resumes automatically at midnight${status?.bandwidth?.limit_mb ? ` (limit ${status.bandwidth.limit_mb} MB/day)` : ""}. Resume now to continue anyway today.`
+                  : status?.pause?.since ? ` Paused ${ago(status.pause.since)}.` : ""}
               </p>
               {msg.pause && <p className="text-[10px] text-blue-300 mt-1">{msg.pause}</p>}
             </div>
@@ -238,7 +242,8 @@ export default function Dashboard() {
             <h2 className="text-xs sm:text-sm text-zinc-500 uppercase tracking-wider">Stores</h2>
             {status?.bandwidth && (
               <Link href="/accounts" className="text-[10px] sm:text-xs text-zinc-500">
-                📶 {fmtBytes(status.bandwidth.proxy_today)} proxy data today
+                📶 {fmtBytes(status.bandwidth.proxy_today)} proxy today
+                {status.bandwidth.limit_mb ? ` / ${status.bandwidth.limit_mb} MB` : ""}
               </Link>
             )}
           </div>
@@ -262,6 +267,7 @@ export default function Dashboard() {
                     {r.interval ? ` · every ${r.interval}s` : ""}
                   </div>
                   {r.hot && <div className="text-[10px] text-orange-300 mt-0.5">🔥 {r.hot}</div>}
+                  {r.watch && <div className="text-[10px] text-zinc-500 mt-0.5">👁 {r.watch}</div>}
                   {status?.bandwidth?.stores[r.retailer] && (
                     <div className="text-[10px] text-zinc-500 mt-0.5">
                       📶 {fmtBytes(status.bandwidth.stores[r.retailer].total)} today{status.bandwidth.stores[r.retailer].via_proxy ? " · proxy" : ""}

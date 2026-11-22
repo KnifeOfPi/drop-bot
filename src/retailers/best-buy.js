@@ -49,6 +49,22 @@ export default defineRetailer({
     cvv: CVV,
   },
 
+  // Light check: Best Buy's own price/availability data — a few KB instead of a full page.
+  async liteCheck(fetchLite, product) {
+    const r = await fetchLite(`https://www.bestbuy.com/api/3.0/priceBlocks?skus=${encodeURIComponent(product.sku)}`, {
+      accept: 'application/json', referer: 'https://www.bestbuy.com/',
+    });
+    if (r.status !== 200) return null; // fall back to the HTML light check
+    let data;
+    try { data = JSON.parse(r.body); } catch { return null; }
+    const s = (Array.isArray(data) ? data[0] : data)?.sku;
+    const state = s?.buttonState?.buttonState || s?.buttonState;
+    if (typeof state !== 'string') return null;
+    const price = s.currentPrice ?? s.regularPrice;
+    const status = /^(ADD_TO_CART|PRE_ORDER)$/.test(state) ? 'in_stock' : /DRAW|INVITE/.test(state) ? 'maybe' : 'oos';
+    return { status, signal: `bestbuy-api:${state}`, price: price != null ? `$${Number(price).toFixed(2)}` : null };
+  },
+
   async addToCart(page, product, ctx) {
     await page.goto(this.productUrl(product), { waitUntil: 'domcontentloaded', timeout: ctx.timeout * 2 });
     await trySolveCaptcha(page, ctx.log);

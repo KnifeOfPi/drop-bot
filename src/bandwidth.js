@@ -56,12 +56,41 @@ function save() {
 setInterval(save, 60_000).unref();
 process.on('exit', save);
 
-function add(retailer, purpose, bytes) {
+// Per-minute totals per store for the last hour (rate shown on the dashboard).
+const minutes = new Map(); // minuteIndex -> { retailer: bytes }
+
+/** Record bytes downloaded for a store (also used by light checks). */
+export function addBytes(retailer, purpose, bytes) {
   if (!bytes) return;
   const d = (store.days[today()] ||= {});
   const r = (d[retailer] ||= { monitor: 0, discovery: 0, flow: 0 });
   r[purpose] = (r[purpose] || 0) + bytes;
   dirty = true;
+  const m = Math.floor(Date.now() / 60_000);
+  const bucket = minutes.get(m) || {};
+  bucket[retailer] = (bucket[retailer] || 0) + bytes;
+  minutes.set(m, bucket);
+  for (const k of minutes.keys()) if (k < m - 60) minutes.delete(k);
+}
+const add = addBytes;
+
+/** Bytes today for the given stores (e.g. the ones that use the proxy). */
+export function bytesToday(stores) {
+  const d = store.days[today()] || {};
+  let t = 0;
+  for (const [r, v] of Object.entries(d)) if (!stores || stores.has(r)) t += (v.monitor || 0) + (v.discovery || 0) + (v.flow || 0);
+  return t;
+}
+
+/** Bytes in the last 60 minutes for the given stores. */
+export function bytesLastHour(stores) {
+  const since = Math.floor(Date.now() / 60_000) - 60;
+  let t = 0;
+  for (const [m, bucket] of minutes) {
+    if (m <= since) continue;
+    for (const [r, b] of Object.entries(bucket)) if (!stores || stores.has(r)) t += b;
+  }
+  return t;
 }
 
 const purposes = new WeakMap(); // page -> 'monitor' | 'discovery' | 'flow'
@@ -113,5 +142,6 @@ export function bandwidthStatus(proxiedStores = new Set()) {
     day,
     total: Object.values(store.days[day]).reduce((s, v) => s + (v.monitor || 0) + (v.discovery || 0) + (v.flow || 0), 0),
   }));
-  return { today: today(), stores, total_today: total, proxy_today: proxied, days };
+  const proxyHour = bytesLastHour(proxiedStores);
+  return { today: today(), stores, total_today: total, proxy_today: proxied, proxy_last_hour: proxyHour, days };
 }

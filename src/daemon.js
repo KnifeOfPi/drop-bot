@@ -24,7 +24,7 @@ import { getCheckoutStatus, runFlow, runDrawing, findProduct, resolveHandoff, is
 import { startMonitors, stopMonitors, productState, retailerHealth } from './monitor.js';
 import { startDiscovery, stopDiscovery, discoverOnce, recentDiscoveries, discoveryState, findDiscovery, markWatched } from './discovery.js';
 import { liveFrame, liveInput, openLoginSession, closeLoginSession, checkLogin, liveSessions } from './live.js';
-import { accountsStatus, setCvv, setProxyUrl, getProxyUrl, proxyStatus } from './accounts.js';
+import { accountsStatus, setCvv, setProxyUrl, getProxyUrl, proxyStatus, proxiedStoreSet } from './accounts.js';
 import { publicIp } from './checkout/browser.js';
 import { bandwidthStatus } from './bandwidth.js';
 import { setPaused, pauseStatus, isPaused } from './pause.js';
@@ -95,7 +95,7 @@ function statusBody() {
       key, retailer: p.retailer, label: p.label, sku: productId(p), action: productAction(p),
       max_price: p.max_price ?? null, url: getAdapter(p.retailer)?.productUrl(p) || null,
       status: st?.status || 'pending', in_stock: st?.in_stock ?? null, price: st?.price || 'N/A',
-      last_checked: st?.last_checked || null, since: st?.since || null, error: st?.error,
+      last_checked: st?.last_checked || null, since: st?.since || null, error: st?.error, via: st?.via || null,
     };
   });
   const active = new Set((cfg.products || []).map(p => p.retailer));
@@ -107,13 +107,13 @@ function statusBody() {
     products,
     retailers: RETAILERS.filter(r => active.has(r)).map(r => ({
       retailer: r, name: getAdapter(r).name, errors: retailerHealth[r].errors, max_errors: msettings.max_consecutive_errors,
-      last_tick: retailerHealth[r].last_tick, interval: retailerHealth[r].interval, hot: retailerHealth[r].hot,
+      last_tick: retailerHealth[r].last_tick, interval: retailerHealth[r].interval, hot: retailerHealth[r].hot, watch: retailerHealth[r].watch,
       busy: isBusy(r), session_open: openSessions().includes(r),
     })),
     checkout: getCheckoutStatus(),
     accounts: accountsStatus(CVV_ENVS),
     proxy: { ...proxyStatus(), stores: getCheckoutSettings(cfg).proxy_stores ?? null },
-    bandwidth: bandwidthStatus(proxiedStores(cfg)),
+    bandwidth: { ...bandwidthStatus(proxiedStoreSet(cfg)), limit_mb: getMonitorSettings(cfg).daily_proxy_limit_mb },
     login_sessions: liveSessions(),
     discovery: { ...getDiscoverySettings(cfg), ...discoveryState, recent: recentDiscoveries(25) },
   };
@@ -317,13 +317,6 @@ async function route(req, res, url) {
 }
 
 // ── Startup ─────────────────────────────────────────────────────────────────
-
-/** Stores whose browser traffic goes through the proxy. */
-function proxiedStores(cfg) {
-  if (!getProxyUrl()) return new Set();
-  const picked = getCheckoutSettings(cfg).proxy_stores;
-  return new Set(Array.isArray(picked) ? picked : RETAILERS);
-}
 
 /** Restart store browsers that aren't in use so proxy changes take effect now. */
 async function restartIdleSessions() {

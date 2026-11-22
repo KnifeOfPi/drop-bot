@@ -65,12 +65,14 @@ const baseConfig = {
     retry_cooldown_seconds: 1, step_timeout_seconds: 3, queue_wait_minutes: 1, handoff_hold_minutes: 5,
     profile_dir: join(TMP, 'profiles'),
   },
-  monitor: { interval_seconds: 1, max_consecutive_errors: 50 },
+  monitor: { interval_seconds: 1, max_consecutive_errors: 50, watch_mode: 'full', daily_proxy_limit_mb: 0 },
   discovery: { enabled: false, retailers: ['walmart', 'target'], queries: ['pokemon tcg'], must_match: 'pok[eé]mon' },
 };
-const writeConfig = (patch = {}) => {
+const writeConfig = (patch = {}, { products, monitor } = {}) => {
   const c = structuredClone(baseConfig);
   Object.assign(c.checkout, patch);
+  if (products) c.products = products;
+  if (monitor) Object.assign(c.monitor, monitor);
   writeFileSync(CONFIG, yaml.dump(c));
 };
 writeConfig();
@@ -83,6 +85,10 @@ const { discoverOnce, recentDiscoveries } = await import('../src/discovery.js');
 const { startMonitors, stopMonitors, productState, activeHotWindow } = await import('../src/monitor.js');
 const { closeAll, newPage } = await import('../src/session.js');
 const { getAdapter } = await import('../src/retailers/index.js');
+const { liteHooks, parseAvailability } = await import('../src/lite.js');
+// Light checks never touch the network in tests: each test supplies responses.
+const NO_NET = async (_r, url) => { throw new Error(`test tried a real light fetch: ${url}`); };
+liteHooks.fetch = NO_NET;
 const { openLoginSession, closeLoginSession } = await import('../src/live.js');
 const { setCvv, accountsStatus } = await import('../src/accounts.js');
 
@@ -471,8 +477,9 @@ await test('Old config is upgraded in place: interval, hot window, modes kept/ad
   const changes = migrateConfigFile(old);
   expect(Array.isArray(changes) && changes.length >= 4, `changes: ${JSON.stringify(changes)}`);
   const c = yaml.load(readFileSync(old, 'utf8'));
-  expect(c.config_version === 2, 'version');
-  expect(c.monitor.interval_seconds === 30 && !('pc_queue_check_seconds' in c.monitor), `monitor ${JSON.stringify(c.monitor)}`);
+  expect(c.config_version === 3, 'version');
+  expect(c.monitor.interval_seconds === 60 && !('pc_queue_check_seconds' in c.monitor), `monitor ${JSON.stringify(c.monitor)}`);
+  expect(c.monitor.watch_mode === 'lite' && c.monitor.daily_proxy_limit_mb === 500 && c.discovery.interval_minutes === 60, 'v3 data-saving defaults');
   expect(c.monitor.hot_windows?.[0]?.retailers?.[0] === 'walmart', 'hot window');
   expect(!c.stealth, 'stealth removed');
   expect(c.products.map(p => p.action).join() === 'assist,checkout,assist', `actions ${c.products.map(p => p.action)}`);
@@ -536,6 +543,132 @@ await test('Data meter counts bytes per store and per activity (watching vs chec
   expect(wm.via_proxy === true && bw.stores.target?.via_proxy === false, 'proxy attribution');
   expect(bw.proxy_today === wm.total && bw.total_today >= bw.proxy_today, `totals ${bw.total_today} / ${bw.proxy_today}`);
   expect(bw.days.length >= 1 && bw.days.at(-1).total === bw.total_today, 'daily history');
+});
+
+
+// ── Data saving: light checks + daily limit ──
+await test('Light check reads stock from page data (schema.org, Walmart, Best Buy) and spots queues/captchas', async () => {
+  const ld = (avail) => `<html><script type="application/ld+json">{"@context":"https://schema.org","@type":"Product","name":"ETB","offers":{"@type":"Offer","price":"49.99","availability":"https://schema.org/${avail}"}}</script>${'x'.repeat(200000)}</html>`;
+  const P0 = (body, extra = {}) => parseAvailability({ status: 200, url: 'https://www.walmart.com/ip/x/1', body, ...extra });
+  let r = P0(ld('InStock'));
+  expect(r.status === 'in_stock' && r.price === '$49.99' && r.signal === 'schema.org', JSON.stringify(r));
+  expect(P0(ld('OutOfStock')).status === 'oos', 'OutOfStock');
+  expect(P0(ld('InStoreOnly')).status === 'oos', 'InStoreOnly = not buyable online');
+  expect(P0(ld('PreOrder')).status === 'in_stock', 'PreOrder');
+  const big = 'y'.repeat(200000);
+  expect(P0(`{"availabilityStatus":"OUT_OF_STOCK"}${big}`).status === 'oos', 'walmart oos');
+  expect(P0(`{"availabilityStatus":"IN_STOCK"}${big}`).status === 'in_stock', 'walmart in');
+  expect(P0(`{"availabilityStatus":"UNAVAILABLE"}${big}`).status === 'oos', 'UNAVAILABLE must not read as in stock');
+  expect(P0(`{"buttonState":"SOLD_OUT"}${big}`).status === 'oos', 'bb sold out');
+  expect(P0(`<button>Enter drawing</button>${big}`).status === 'maybe', 'drawing → confirm');
+  expect(P0('<h1>You are now in line</h1>').status === 'queue', 'queue page');
+  expect(P0('x', { url: 'https://pokemon.queue-it.net/?c=x' }).status === 'queue', 'queue url');
+  expect(P0('<div id="px-captcha"></div> Press & Hold').status === 'blocked', 'captcha');
+  expect(P0('', { status: 429 }).status === 'blocked', '429');
+  expect(P0(`<html>${big}</html>`).status === 'unknown', 'no data → unknown');
+});
+
+await test('Light checks go through the store session\'s proxy (with the browser\'s user-agent) and are metered', async () => {
+  const { setProxyUrl } = await import('../src/accounts.js');
+  const { closeSession } = await import('../src/session.js');
+  const { liteFetch } = await import('../src/lite.js');
+  const { bandwidthStatus } = await import('../src/bandwidth.js');
+  const { connect } = await import('net');
+  // Fake store server, reachable only through the fake proxy's tunnel.
+  const viaProxy = [];
+  const origin = createServer((req, res) => {
+    viaProxy.push({ url: `http://${req.headers.host}${req.url}`, ua: req.headers['user-agent'] || '' });
+    res.writeHead(200, { 'content-type': 'text/html' }); res.end('<html>ok</html>');
+  });
+  await new Promise(r => origin.listen(0, '127.0.0.1', r));
+  const tunnels = [];
+  const proxy = createServer((req, res) => { // plain proxied requests
+    viaProxy.push({ url: req.url, ua: req.headers['user-agent'] || '' });
+    res.writeHead(200, { 'content-type': 'text/html' }); res.end('<html>ok</html>');
+  });
+  proxy.on('connect', (req, client) => { // CONNECT tunnels → fake store
+    tunnels.push(req.url);
+    const up = connect(origin.address().port, '127.0.0.1', () => {
+      client.write('HTTP/1.1 200 Connection Established\r\n\r\n');
+      up.pipe(client); client.pipe(up);
+    });
+    up.on('error', () => client.destroy()); client.on('error', () => up.destroy());
+  });
+  await new Promise(r => proxy.listen(0, '127.0.0.1', r));
+  await closeSession('sams-club');
+  setProxyUrl(`127.0.0.1:${proxy.address().port}`);
+  liteHooks.fetch = null;
+  const before = bandwidthStatus().stores['sams-club']?.monitor || 0;
+  try {
+    const r = await liteFetch('sams-club', 'http://shop.example/ip/pokemon-tin/prod999');
+    expect(r.status === 200 && r.body.includes('ok'), `status ${r.status}`);
+  } finally {
+    liteHooks.fetch = NO_NET;
+    setProxyUrl('');
+    await closeSession('sams-club');
+    proxy.close(); origin.close();
+  }
+  expect(tunnels.some(t => t.startsWith('shop.example')), `proxy tunnels: ${JSON.stringify(tunnels)}`);
+  expect(viaProxy.some(x => x.url === 'http://shop.example/ip/pokemon-tin/prod999'), `proxy saw ${JSON.stringify(viaProxy)}`);
+  expect(viaProxy.every(x => /Chrome\//.test(x.ua) && !/Playwright/i.test(x.ua)), `user-agent ${viaProxy[0]?.ua}`);
+  expect((bandwidthStatus().stores['sams-club']?.monitor || 0) > before, 'light fetch not metered');
+});
+
+await test('Lite watching: out of stock = no Chrome load; in stock = confirmed in Chrome; unclear = Chrome only when due', async () => {
+  const ldPage = (avail) => `<script type="application/ld+json">{"@type":"Product","offers":{"availability":"https://schema.org/${avail}","price":"69.99"}}</script>${'z'.repeat(160000)}`;
+  const lite = [];
+  liteHooks.fetch = async (_r, url) => {
+    lite.push(url);
+    if (url.includes('4000111')) return { status: 200, url, headers: {}, body: ldPage('OutOfStock') };
+    if (url.includes('/ip/Pokemon-ETB/111')) return { status: 200, url, headers: {}, body: `{"availabilityStatus":"IN_STOCK"}${'z'.repeat(160000)}` };
+    return { status: 200, url, headers: {}, body: `<html>${'z'.repeat(160000)}</html>` }; // no stock info
+  };
+  const products = baseConfig.products.filter(p => ['costco', 'walmart'].includes(p.retailer) || p.tcin === '999').filter(p => !String(p.url).includes('222'));
+  writeConfig({ dry_run: true, enabled: false }, { products, monitor: { watch_mode: 'lite', full_check_minutes: 15 } });
+  const t0 = seen.length;
+  startMonitors();
+  const ok = await until(() => productState.get('costco:4000111')?.via?.startsWith('light') && productState.get('walmart:111')?.via === 'full', 30000);
+  await sleep(2500);
+  stopMonitors();
+  await sleep(1500);
+  liteHooks.fetch = NO_NET;
+  writeConfig();
+  const loaded = seen.slice(t0);
+  expect(ok, `states: ${['costco:4000111', 'walmart:111', 'target:999'].map(k => `${k}=${productState.get(k)?.status}/${productState.get(k)?.via}`).join(' ')}`);
+  expect(productState.get('costco:4000111').status === 'oos', 'costco should be oos from light check');
+  expect(!loaded.some(u => u.includes('4000111')), 'costco should never load in Chrome');
+  expect(loaded.some(u => u.includes('/ip/Pokemon-ETB/111')), 'walmart in-stock should be confirmed in Chrome');
+  expect(!loaded.some(u => u.includes('/A-999')), 'target unclear + full check not due → no Chrome load');
+  expect(lite.some(u => u.includes('A-999')), 'target should still be light-checked');
+});
+
+await test('Daily proxy data limit pauses the bot, a manual resume sticks, and it auto-resumes the next day', async () => {
+  const { setProxyUrl } = await import('../src/accounts.js');
+  const { addBytes } = await import('../src/bandwidth.js');
+  const { dataGuard } = await import('../src/monitor.js');
+  const { setPaused, pauseStatus } = await import('../src/pause.js');
+  const { readFileSync } = await import('fs');
+  setProxyUrl('127.0.0.1:9');
+  try {
+    writeConfig({}, { monitor: { daily_proxy_limit_mb: 1 } });
+    addBytes('walmart', 'monitor', 2 * 1024 * 1024);
+    await dataGuard();
+    let st = pauseStatus();
+    expect(st.paused && st.reason === 'data_limit', `after limit: ${JSON.stringify(st)}`);
+    expect(await until(() => sent('health', 'proxy data reached'), 3000), 'limit alert');
+    await setPaused(false); // you resume by hand
+    await dataGuard();
+    expect(!pauseStatus().paused, 'should not re-pause the same day after a manual resume');
+    // Next day: yesterday's automatic pause lifts by itself.
+    const c = yaml.load(readFileSync(CONFIG, 'utf8'));
+    Object.assign(c, { paused: true, paused_reason: 'data_limit', data_limit_hit_day: '2000-01-01' });
+    writeFileSync(CONFIG, yaml.dump(c));
+    await dataGuard();
+    expect(!pauseStatus().paused, 'should auto-resume on a new day');
+  } finally {
+    setProxyUrl('');
+    writeConfig();
+  }
 });
 
 await test('Pause closes every store browser, stops all loading, and Resume brings watching back', async () => {

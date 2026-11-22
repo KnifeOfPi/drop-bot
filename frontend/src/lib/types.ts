@@ -16,6 +16,7 @@ export interface ProductStatus {
   last_checked: number | null;
   since: number | null;
   error?: string;
+  via?: string | null;
 }
 
 export interface RetailerHealth {
@@ -28,6 +29,7 @@ export interface RetailerHealth {
   hot: string | null;
   busy: boolean;
   session_open: boolean;
+  watch?: string | null;
 }
 
 export interface Attempt {
@@ -140,6 +142,8 @@ export interface BandwidthStatus {
   stores: Record<string, StoreUsage>;
   total_today: number;
   proxy_today: number;
+  proxy_last_hour?: number;
+  limit_mb?: number;
   days: Array<{ day: string; total: number }>;
 }
 
@@ -152,7 +156,7 @@ export function fmtBytes(n: number | null | undefined) {
 
 export interface DaemonStatus {
   running: boolean;
-  pause?: { paused: boolean; since: number | null };
+  pause?: { paused: boolean; since: number | null; reason?: "manual" | "data_limit" | null };
   uptime_seconds: number;
   pid: number;
   products: ProductStatus[];

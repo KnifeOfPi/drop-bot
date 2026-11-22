@@ -43,7 +43,10 @@ interface CheckoutSettings {
 interface Config {
   products?: Product[];
   discord?: Record<string, string>;
-  monitor?: { interval_seconds?: number; max_consecutive_errors?: number; hot_windows?: HotWindow[]; save_bandwidth?: boolean };
+  monitor?: {
+    interval_seconds?: number; max_consecutive_errors?: number; hot_windows?: HotWindow[]; save_bandwidth?: boolean;
+    watch_mode?: "lite" | "full"; full_check_minutes?: number; hot_full_check_minutes?: number; daily_proxy_limit_mb?: number;
+  };
   notifications?: Record<string, number>;
   checkout?: CheckoutSettings;
   discovery?: { enabled?: boolean; interval_minutes?: number; queries?: string[]; must_match?: string; retailers?: string[] };
@@ -190,7 +193,12 @@ export default function Settings() {
   const products = config.products || [];
   const checkout = { ...CHECKOUT_DEFAULTS, ...(config.checkout || {}) };
   const setCheckout = (p: Partial<CheckoutSettings>) => patch((c) => { c.checkout = { ...checkout, ...p }; });
-  const monitor = { interval_seconds: 30, max_consecutive_errors: 10, hot_windows: [] as HotWindow[], save_bandwidth: true, ...(config.monitor || {}) };
+  const monitor = {
+    interval_seconds: 60, max_consecutive_errors: 10, hot_windows: [] as HotWindow[], save_bandwidth: true,
+    watch_mode: "lite" as "lite" | "full", full_check_minutes: 15, hot_full_check_minutes: 3, daily_proxy_limit_mb: 500,
+    ...(config.monitor || {}),
+  };
+  const setMonitor = (p: Partial<typeof monitor>) => patch((c) => { c.monitor = { ...monitor, ...p }; });
   const windows = monitor.hot_windows || [];
   const setWindow = (i: number, p: Partial<HotWindow>) => patch((c) => {
     c.monitor = { ...monitor, hot_windows: windows.map((w, j) => (j === i ? { ...w, ...p } : w)) };
@@ -398,6 +406,33 @@ export default function Settings() {
                 onChange={(e) => patch((c) => { c.monitor = { ...monitor, max_consecutive_errors: parseInt(e.target.value) || 10 }; })}
                 className={inputCls}
               />
+            </div>
+
+            <div className={card}>
+              <label className="text-[10px] text-zinc-500 uppercase block mb-1">How to watch</label>
+              <select value={monitor.watch_mode} onChange={(e) => setMonitor({ watch_mode: e.target.value as "lite" | "full" })} className={inputCls}>
+                <option value="lite">Light checks (recommended — a few KB per check)</option>
+                <option value="full">Full page every check (uses far more data)</option>
+              </select>
+              <p className="text-[10px] text-zinc-600 mt-1">Light: reads stock from one small response; opens the full page only to confirm a drop, or when it can&apos;t tell (at most as often as below).</p>
+            </div>
+            <div className="grid grid-cols-2 gap-2 sm:gap-3">
+              <div className={card}>
+                <label className="text-[10px] text-zinc-500 uppercase block mb-1">Full check at most every (min)</label>
+                <input type="number" min={1} max={240} value={monitor.full_check_minutes}
+                  onChange={(e) => setMonitor({ full_check_minutes: parseInt(e.target.value) || 15 })} className={inputCls} />
+              </div>
+              <div className={card}>
+                <label className="text-[10px] text-zinc-500 uppercase block mb-1">…during hot windows (min)</label>
+                <input type="number" min={1} max={60} value={monitor.hot_full_check_minutes}
+                  onChange={(e) => setMonitor({ hot_full_check_minutes: parseInt(e.target.value) || 3 })} className={inputCls} />
+              </div>
+            </div>
+            <div className={card}>
+              <label className="text-[10px] text-zinc-500 uppercase block mb-1">Daily proxy data limit (MB)</label>
+              <input type="number" min={0} max={100000} value={monitor.daily_proxy_limit_mb}
+                onChange={(e) => setMonitor({ daily_proxy_limit_mb: Math.max(0, parseInt(e.target.value) || 0) })} className={inputCls} />
+              <p className="text-[10px] text-zinc-600 mt-1">The bot pauses itself when today&apos;s proxy data reaches this, and resumes at midnight. 0 = no limit.</p>
             </div>
 
             <Toggle

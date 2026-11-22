@@ -147,7 +147,11 @@ export const CHECKOUT_DEFAULTS = {
 };
 
 export const MONITOR_DEFAULTS = {
-  interval_seconds: 30,        // per-retailer pass over its watchlist (outside hot windows)
+  interval_seconds: 60,        // per-retailer pass over its watchlist (outside hot windows)
+  watch_mode: 'lite',          // 'lite' = light checks + occasional full checks; 'full' = full page every pass
+  full_check_minutes: 15,      // lite mode: full Chrome check at most this often when a light check can't tell
+  hot_full_check_minutes: 3,   // …and during hot windows
+  daily_proxy_limit_mb: 500,   // pause automatically when today's proxy data reaches this (0 = no limit)
   max_consecutive_errors: 10,
   hot_windows: [],             // faster polling during known drop windows (see config.yaml)
   save_bandwidth: true,        // don't load images/fonts/video while watching & searching (proxy GBs)
@@ -155,7 +159,7 @@ export const MONITOR_DEFAULTS = {
 
 export const DISCOVERY_DEFAULTS = {
   enabled: true,
-  interval_minutes: 15,
+  interval_minutes: 60,
   queries: ['pokemon trading card game', 'pokemon tcg'],
   must_match: 'pok[eé]mon',
   retailers: ['target', 'best-buy', 'walmart', 'costco', 'sams-club', 'pokemon-center'],
@@ -170,7 +174,7 @@ export function getCheckoutSettings(config) {
 }
 
 // ── One-time upgrade of settings written by the original (3-store) bot ────
-export const CONFIG_VERSION = 2;
+export const CONFIG_VERSION = 3;
 const WALMART_WEDNESDAY = {
   name: 'Walmart Wednesday drops', retailers: ['walmart'], days: ['wed'],
   start: '06:00', end: '18:00', timezone: 'America/New_York', interval_seconds: 10,
@@ -185,9 +189,38 @@ export function migrateConfigFile(path = CONFIG_PATH) {
   let raw;
   try { raw = readFileSync(path, 'utf8'); } catch { return null; }
   const cfg = yaml.load(raw) || {};
-  if ((cfg.config_version || 1) >= CONFIG_VERSION) return null;
-  writeFileSync(`${path}.v1.bak`, raw);
+  const version = cfg.config_version || 1;
+  if (version >= CONFIG_VERSION) return null;
+  writeFileSync(`${path}.v${version}.bak`, raw);
   const changes = [];
+  if (version < 2) migrateV1(cfg, changes);
+  if (version < 3) migrateV2(cfg, changes);
+  cfg.config_version = CONFIG_VERSION;
+  writeFileSync(path, yaml.dump(cfg, { lineWidth: 120, noRefs: true }));
+  cachedConfig = null;
+  return changes;
+}
+
+/** v2 → v3: data-saving defaults (light checks, slower discovery, daily proxy limit). */
+function migrateV2(cfg, changes) {
+  cfg.monitor = { ...(cfg.monitor || {}) };
+  if (!(cfg.monitor.interval_seconds >= 60)) {
+    changes.push(`normal check interval ${cfg.monitor.interval_seconds ?? '?'}s → 60s (busy windows unchanged)`);
+    cfg.monitor.interval_seconds = 60;
+  }
+  for (const k of ['watch_mode', 'full_check_minutes', 'hot_full_check_minutes', 'daily_proxy_limit_mb']) {
+    if (cfg.monitor[k] === undefined) cfg.monitor[k] = MONITOR_DEFAULTS[k];
+  }
+  changes.push(`light checks on (full Chrome check at most every ${cfg.monitor.full_check_minutes} min when unclear)`);
+  changes.push(`daily proxy data limit ${cfg.monitor.daily_proxy_limit_mb} MB (auto-pause, resumes at midnight)`);
+  cfg.discovery = { ...DISCOVERY_DEFAULTS, ...(cfg.discovery || {}) };
+  if (!(cfg.discovery.interval_minutes >= 60)) {
+    changes.push(`new-listing search every ${cfg.discovery.interval_minutes} min → 60 min`);
+    cfg.discovery.interval_minutes = 60;
+  }
+}
+
+function migrateV1(cfg, changes) {
 
   cfg.monitor = { ...(cfg.monitor || {}) };
   if (!(cfg.monitor.interval_seconds >= 15)) {
@@ -217,9 +250,4 @@ export function migrateConfigFile(path = CONFIG_PATH) {
     }
   }
   if (n) changes.push(`${n} products set to "Queue + cart, I finish" (only acts once automation is enabled)`);
-
-  cfg.config_version = CONFIG_VERSION;
-  writeFileSync(path, yaml.dump(cfg, { lineWidth: 120, noRefs: true }));
-  cachedConfig = null;
-  return changes;
 }

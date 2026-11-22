@@ -109,8 +109,8 @@ export async function readOrderTotal(page) {
 }
 
 // Queue-it, Akamai/PerimeterX waiting rooms, Walmart / Costco / Sam's virtual queues.
-const QUEUE_URL = /queue-it\.net|\.queue-it\.|waitingroom|waiting-room|\/queue(\/|\?|$)|virtual-?queue/i;
-const QUEUE_TEXT = /you are now in line|you('|’)re (now )?in (the )?(line|queue)|you are in (the )?(line|queue)|waiting room|estimated wait( time)?|your (place|number|position) in (line|the queue)|virtual queue|thank you for waiting|we('|’)ll get you (in|through) (shortly|soon)/i;
+export const QUEUE_URL = /queue-it\.net|\.queue-it\.|waitingroom|waiting-room|\/queue(\/|\?|$)|virtual-?queue/i;
+export const QUEUE_TEXT = /you are now in line|you('|’)re (now )?in (the )?(line|queue)|you are in (the )?(line|queue)|waiting room|estimated wait( time)?|your (place|number|position) in (line|the queue)|virtual queue|thank you for waiting|we('|’)ll get you (in|through) (shortly|soon)/i;
 
 export async function inQueue(page) {
   if (QUEUE_URL.test(page.url())) return true;
