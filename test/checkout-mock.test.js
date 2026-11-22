@@ -515,7 +515,7 @@ await test('Proxy applies to all stores by default, or only the ones picked', as
   expect(!proxyStatus().set, 'proxy should be removed');
 });
 
-await test('Watch tab skips images (proxy data); checkout tab loads them', async () => {
+await test('Watch tab blocks images via Chrome (cache stays on); checkout tab loads them', async () => {
   const { monitorPage, newPage: np } = await import('../src/session.js');
   const before = seen.length;
   const mp = await monitorPage('walmart');
@@ -526,6 +526,16 @@ await test('Watch tab skips images (proxy data); checkout tab loads them', async
   await cp.waitForTimeout(500);
   await cp.close();
   expect(seen.slice(before).some(u => u.includes('/img/etb-photo.png')), 'checkout tab should load images');
+});
+
+await test('Data meter counts bytes per store and per activity (watching vs checkout vs search)', async () => {
+  const { bandwidthStatus } = await import('../src/bandwidth.js');
+  const bw = bandwidthStatus(new Set(['walmart']));
+  const wm = bw.stores.walmart;
+  expect(wm && wm.monitor > 0 && wm.flow > 0 && wm.discovery > 0, `walmart usage ${JSON.stringify(wm)}`);
+  expect(wm.via_proxy === true && bw.stores.target?.via_proxy === false, 'proxy attribution');
+  expect(bw.proxy_today === wm.total && bw.total_today >= bw.proxy_today, `totals ${bw.total_today} / ${bw.proxy_today}`);
+  expect(bw.days.length >= 1 && bw.days.at(-1).total === bw.total_today, 'daily history');
 });
 
 console.log(`\n${passed} passed, ${failed} failed\n`);

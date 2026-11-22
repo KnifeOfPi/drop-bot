@@ -127,6 +127,29 @@ export interface ProxyStatus {
   stores: string[] | null; // null = every store
 }
 
+export interface StoreUsage {
+  monitor: number;
+  discovery: number;
+  flow: number;
+  total: number;
+  via_proxy: boolean;
+}
+
+export interface BandwidthStatus {
+  today: string;
+  stores: Record<string, StoreUsage>;
+  total_today: number;
+  proxy_today: number;
+  days: Array<{ day: string; total: number }>;
+}
+
+export function fmtBytes(n: number | null | undefined) {
+  const b = n || 0;
+  if (b < 1024 * 1024) return `${Math.round(b / 1024)} KB`;
+  if (b < 1024 ** 3) return `${(b / 1024 / 1024).toFixed(b < 10 * 1024 * 1024 ? 1 : 0)} MB`;
+  return `${(b / 1024 ** 3).toFixed(2)} GB`;
+}
+
 export interface DaemonStatus {
   running: boolean;
   uptime_seconds: number;
@@ -138,6 +161,7 @@ export interface DaemonStatus {
   accounts?: Record<string, AccountStatus>;
   login_sessions?: LoginSession[];
   proxy?: ProxyStatus;
+  bandwidth?: BandwidthStatus;
 }
 
 export const RETAILERS: Array<{ id: string; name: string; emoji: string; color: string; idField: "tcin" | "sku" | "url"; idLabel: string }> = [

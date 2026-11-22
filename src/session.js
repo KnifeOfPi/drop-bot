@@ -2,26 +2,21 @@
 // retailer, shared by the monitor, queue/checkout flows, drawing entries,
 // discovery searches and Live view. Keeping one session means the queue pass,
 // cart and login cookies all live in the same place.
+//
+// Every tab is metered (src/bandwidth.js); monitor + discovery tabs also get
+// the data saver (blocks images/video/fonts/trackers but keeps the cache).
 
 import { launchProfile } from './checkout/browser.js';
 import { getCheckoutSettings, getMonitorSettings, loadConfigFresh } from './config.js';
+import { meterPage, leanPage as lean } from './bandwidth.js';
 
 const sessions = new Map(); // retailer -> Promise<{ context, monitorPage }>
-const leaned = new WeakSet();
 
-const HEAVY = new Set(['image', 'media', 'font']);
+const saverOn = () => getMonitorSettings(loadConfigFresh() || {}).save_bandwidth !== false;
 
-/**
- * Bandwidth saver for tabs nobody looks at (monitor + discovery): skip images,
- * video and fonts — most of a product page's weight, and what a per-GB
- * residential proxy bills for. Checkout, sign-in and Live view tabs load fully.
- */
-export async function leanPage(page) {
-  if (leaned.has(page)) return page;
-  leaned.add(page);
-  if (getMonitorSettings(loadConfigFresh() || {}).save_bandwidth === false) return page;
-  await page.route('**/*', (route) => (HEAVY.has(route.request().resourceType()) ? route.abort() : route.fallback()));
-  return page;
+/** Turn a tab into a data-saving tab: 'monitor' (default) or 'discovery'. */
+export function leanPage(retailer, page, purpose = 'monitor') {
+  return lean(retailer, page, purpose, saverOn());
 }
 
 export function getSession(retailer) {
@@ -30,8 +25,9 @@ export function getSession(retailer) {
       const settings = getCheckoutSettings(loadConfigFresh() || {});
       const { context, page } = await launchProfile(retailer, settings);
       context.on('close', () => { if (sessions.get(retailer) === p) sessions.delete(retailer); });
+      context.on('page', (pg) => { meterPage(retailer, pg); }); // pop-ups etc.
       console.log(`[session] ${retailer}: browser profile open`);
-      return { context, monitorPage: await leanPage(page) };
+      return { context, monitorPage: await leanPage(retailer, page, 'monitor') };
     })();
     sessions.set(retailer, p);
     p.catch(() => { if (sessions.get(retailer) === p) sessions.delete(retailer); });
@@ -42,14 +38,16 @@ export function getSession(retailer) {
 /** The tab the monitor polls product pages in. */
 export async function monitorPage(retailer) {
   const s = await getSession(retailer);
-  if (s.monitorPage.isClosed()) s.monitorPage = await leanPage(await s.context.newPage());
+  if (s.monitorPage.isClosed()) s.monitorPage = await leanPage(retailer, await s.context.newPage(), 'monitor');
   return s.monitorPage;
 }
 
-/** A fresh tab for a flow (checkout, drawing, discovery). Caller closes it. */
+/** A fresh, metered tab for a flow (checkout, drawing, sign-in). Caller closes it. */
 export async function newPage(retailer) {
   const s = await getSession(retailer);
-  return s.context.newPage();
+  const page = await s.context.newPage();
+  await meterPage(retailer, page); // attach before the caller navigates
+  return page;
 }
 
 export function openSessions() {

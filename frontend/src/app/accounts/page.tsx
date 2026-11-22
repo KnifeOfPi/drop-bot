@@ -8,7 +8,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { type DaemonStatus, RETAILERS, ago, postJson } from "@/lib/types";
+import { type DaemonStatus, RETAILERS, ago, postJson, fmtBytes } from "@/lib/types";
 
 export default function Accounts() {
   const router = useRouter();
@@ -88,6 +88,7 @@ export default function Accounts() {
   };
 
   const proxy = status?.proxy;
+  const bw = status?.bandwidth;
   const proxyStores = proxy?.stores ?? RETAILERS.map((r) => r.id);
   const accounts = status?.accounts || {};
   const watched = new Set((status?.products || []).map((p) => p.retailer));
@@ -157,6 +158,39 @@ export default function Accounts() {
             </div>
           )}
           {proxyMsg && <p className="text-[10px] text-blue-300">{proxyMsg}</p>}
+          {bw && (
+            <div className="pt-2 border-t border-zinc-800">
+              <div className="flex items-center justify-between mb-1">
+                <p className="text-[10px] text-zinc-500 uppercase">Data used today</p>
+                <p className="text-[10px] text-zinc-400">
+                  proxy <b className="text-zinc-200">{fmtBytes(bw.proxy_today)}</b> · all {fmtBytes(bw.total_today)}
+                </p>
+              </div>
+              <table className="w-full text-[10px] sm:text-xs">
+                <thead className="text-zinc-600">
+                  <tr><th className="text-left font-normal">Store</th><th className="text-right font-normal">Watching</th><th className="text-right font-normal">Search</th><th className="text-right font-normal">Checkout/sign-in</th></tr>
+                </thead>
+                <tbody>
+                  {RETAILERS.filter((r) => bw.stores[r.id]).map((r) => {
+                    const u = bw.stores[r.id];
+                    return (
+                      <tr key={r.id} className={u.via_proxy ? "text-zinc-300" : "text-zinc-500"}>
+                        <td>{r.emoji} {r.name}{u.via_proxy ? "" : " (direct)"}</td>
+                        <td className="text-right">{fmtBytes(u.monitor)}</td>
+                        <td className="text-right">{fmtBytes(u.discovery)}</td>
+                        <td className="text-right">{fmtBytes(u.flow)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              {bw.days.length > 1 && (
+                <p className="text-[10px] text-zinc-600 mt-1">
+                  Last {bw.days.length} days: {bw.days.map((d) => `${d.day.slice(5)} ${fmtBytes(d.total)}`).join(" · ")}
+                </p>
+              )}
+            </div>
+          )}
           <p className="text-[10px] text-zinc-600">
             Use a residential proxy with a <b>sticky session</b> (same IP for 30+ min) so store logins aren&apos;t re-challenged.
             Sign in to stores <i>after</i> setting the proxy. Watching skips images to save proxy data.

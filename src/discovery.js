@@ -57,7 +57,7 @@ export async function discoverOnce() {
     if (!adapter?.search || isBusy(retailer)) continue;
     let page;
     try {
-      page = await leanPage(await newPage(retailer));
+      page = await leanPage(retailer, await newPage(retailer), 'discovery');
       const seeding = !data.seeded[retailer];
       let ok = false;
       for (const query of s.queries || []) {

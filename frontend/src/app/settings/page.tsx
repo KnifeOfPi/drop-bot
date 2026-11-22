@@ -404,7 +404,7 @@ export default function Settings() {
               on={monitor.save_bandwidth !== false}
               onChange={(v) => patch((c) => { c.monitor = { ...monitor, save_bandwidth: v }; })}
               label="Save proxy data while watching"
-              hint="Skip images, fonts and video on watch + search tabs (checkout and Live view load fully). Applies when a store's browser restarts."
+              hint="Watch + search tabs skip images, video, fonts and ad/analytics trackers, and keep the browser cache so store scripts download once. Checkout and Live view load fully. Applies when a store's browser restarts."
             />
 
             <div className="flex items-center justify-between pt-2">

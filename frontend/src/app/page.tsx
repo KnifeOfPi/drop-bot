@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useState, useEffect, useCallback } from "react";
 import {
   type DaemonStatus, type ProductStatus, type Attempt,
-  RETAILERS, retailerInfo, ACTION_LABELS, ago, postJson,
+  RETAILERS, retailerInfo, ACTION_LABELS, ago, postJson, fmtBytes,
 } from "@/lib/types";
 
 const STATUS_BADGE: Record<string, { text: string; cls: string }> = {
@@ -191,7 +191,14 @@ export default function Dashboard() {
 
         {/* ── Stores ── */}
         <section>
-          <h2 className="text-xs sm:text-sm text-zinc-500 uppercase tracking-wider mb-3">Stores</h2>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-xs sm:text-sm text-zinc-500 uppercase tracking-wider">Stores</h2>
+            {status?.bandwidth && (
+              <Link href="/accounts" className="text-[10px] sm:text-xs text-zinc-500">
+                📶 {fmtBytes(status.bandwidth.proxy_today)} proxy data today
+              </Link>
+            )}
+          </div>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
             {(status?.retailers ?? []).map((r) => {
               const info = retailerInfo(r.retailer);
@@ -212,6 +219,11 @@ export default function Dashboard() {
                     {r.interval ? ` · every ${r.interval}s` : ""}
                   </div>
                   {r.hot && <div className="text-[10px] text-orange-300 mt-0.5">🔥 {r.hot}</div>}
+                  {status?.bandwidth?.stores[r.retailer] && (
+                    <div className="text-[10px] text-zinc-500 mt-0.5">
+                      📶 {fmtBytes(status.bandwidth.stores[r.retailer].total)} today{status.bandwidth.stores[r.retailer].via_proxy ? " · proxy" : ""}
+                    </div>
+                  )}
                 </button>
               );
             })}

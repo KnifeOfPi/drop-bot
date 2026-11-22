@@ -26,6 +26,7 @@ import { startDiscovery, stopDiscovery, discoverOnce, recentDiscoveries, discove
 import { liveFrame, liveInput, openLoginSession, closeLoginSession, checkLogin, liveSessions } from './live.js';
 import { accountsStatus, setCvv, setProxyUrl, getProxyUrl, proxyStatus } from './accounts.js';
 import { publicIp } from './checkout/browser.js';
+import { bandwidthStatus } from './bandwidth.js';
 import { RETAILER_ADAPTERS } from './retailers/index.js';
 import { getAdapter } from './retailers/index.js';
 import { openSessions, closeAll, closeSession } from './session.js';
@@ -110,6 +111,7 @@ function statusBody() {
     checkout: getCheckoutStatus(),
     accounts: accountsStatus(CVV_ENVS),
     proxy: { ...proxyStatus(), stores: getCheckoutSettings(cfg).proxy_stores ?? null },
+    bandwidth: bandwidthStatus(proxiedStores(cfg)),
     login_sessions: liveSessions(),
     discovery: { ...getDiscoverySettings(cfg), ...discoveryState, recent: recentDiscoveries(25) },
   };
@@ -294,6 +296,13 @@ async function route(req, res, url) {
 }
 
 // ── Startup ─────────────────────────────────────────────────────────────────
+
+/** Stores whose browser traffic goes through the proxy. */
+function proxiedStores(cfg) {
+  if (!getProxyUrl()) return new Set();
+  const picked = getCheckoutSettings(cfg).proxy_stores;
+  return new Set(Array.isArray(picked) ? picked : RETAILERS);
+}
 
 /** Restart store browsers that aren't in use so proxy changes take effect now. */
 async function restartIdleSessions() {
