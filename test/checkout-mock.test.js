@@ -723,6 +723,18 @@ await test('Target: a full check learns the stock-data request; light checks the
     const again = await liteCheck(target, P('target', '999'));
     expect(again.signal === 'target-api-not-learned-yet', 'should wait for re-learning');
 
+    // Target refusing a replay (435) → no more light requests for 24 h.
+    await target.check(await monitorPage('target'), P('target', '1010892078'), ctxFor()); // re-learn
+    let refusedCalls = 0;
+    liteHooks.fetch = async (_r, url) => { refusedCalls++; return { status: 435, url, headers: {}, body: '' }; };
+    const ref1 = await liteCheck(target, P('target', '999'));
+    const ref2 = await liteCheck(target, P('target', '1010892076'));
+    expect(ref1.signal === 'target-api-refused-http-435' && ref2.signal === 'target-light-refused-24h' && refusedCalls === 1,
+      `refusal: ${JSON.stringify(ref1)} ${JSON.stringify(ref2)} calls=${refusedCalls}`);
+    (await import('fs')).rmSync(join(process.env.DROPBOT_DATA_DIR, 'target-light-refused.json'), { force: true });
+    const { resetTargetRefusal } = await import('../src/retailers/target.js');
+    resetTargetRefusal();
+
     // A POST-style stock request (product id in the body, custom header) is learned and replayed too.
     scenario.targetPost = true;
     await target.check(await monitorPage('target'), P('target', '1010892078'), ctxFor());

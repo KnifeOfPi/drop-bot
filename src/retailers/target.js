@@ -26,6 +26,18 @@ let fulfillment = (() => {
   } catch { return null; }
 })();
 let learnedWaiters = [];
+// When Target refuses a replayed request (e.g. HTTP 435 / 429 — it rejects copies
+// of the page's request), stop light-checking Target for a day: sending refused
+// requests over and over is how an IP gets flagged. Full checks carry on.
+const REFUSED_FILE = resolve(DATA_DIR, 'target-light-refused.json');
+let refusedUntil = (() => {
+  try { return existsSync(REFUSED_FILE) ? Number(JSON.parse(readFileSync(REFUSED_FILE, 'utf8')).until) || 0 : 0; } catch { return 0; }
+})();
+function markRefused(status) {
+  refusedUntil = Date.now() + 24 * 3600_000;
+  try { writeFileSync(REFUSED_FILE, JSON.stringify({ until: refusedUntil, status })); } catch {}
+  console.log(`[target] Target refused the light check (HTTP ${status}) — using full checks only for the next 24 h`);
+}
 
 // What the last full check saw (for `npm run check` diagnostics — no keys/values).
 export const targetDebug = { seen: [] };
@@ -68,6 +80,9 @@ function forgetFulfillment() {
   fulfillment = null;
   try { writeFileSync(LEARNED, 'null'); } catch {}
 }
+
+/** Tests only. */
+export function resetTargetRefusal() { refusedUntil = 0; }
 
 export function isTargetLearned() {
   return !!fulfillment?.url;
@@ -157,6 +172,9 @@ export default defineRetailer({
   },
 
   async liteCheck(fetchLite, product) {
+    if (Date.now() < refusedUntil) {
+      return { status: 'unknown', signal: 'target-light-refused-24h' }; // no request sent
+    }
     if (!fulfillment?.url) {
       // Not learned yet — skip the 330 KB page (it has no stock info); the next full check learns it.
       return { status: 'unknown', signal: 'target-api-not-learned-yet', learning: true };
@@ -170,6 +188,10 @@ export default defineRetailer({
     if (r.status === 401 || r.status === 403 || r.status === 410) {
       forgetFulfillment(); // key/params expired — re-learn on the next full check
       return { status: 'unknown', signal: `target-api-http-${r.status}`, learning: true };
+    }
+    if (r.status === 429 || (r.status >= 430 && r.status < 500 && r.status !== 404)) {
+      markRefused(r.status);
+      return { status: 'unknown', signal: `target-api-refused-http-${r.status}` };
     }
     if (r.status !== 200) return { status: 'unknown', signal: `target-api-http-${r.status}` };
     return parseTargetFulfillment(r.body || '') || { status: 'unknown', signal: 'target-api-no-status' };
