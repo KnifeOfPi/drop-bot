@@ -26,21 +26,25 @@ async function userAgent(retailer) {
   return uaCache.get(retailer);
 }
 
-/** One GET through the store's session. Counts its bytes as "monitor" data. */
-export async function liteFetch(retailer, url, { accept, referer } = {}) {
+/**
+ * One request through the store's session (GET by default; POST with a body
+ * when replaying a learned request). Counts its bytes as "monitor" data.
+ */
+export async function liteFetch(retailer, url, { accept, referer, method = 'GET', body, headers: extra } = {}) {
   const headers = {
     accept: accept || 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
     'accept-language': 'en-US,en;q=0.9',
+    ...(extra || {}),
   };
   if (referer) headers.referer = referer;
   let r;
   if (liteHooks.fetch) {
-    r = await liteHooks.fetch(retailer, url, headers);
+    r = await liteHooks.fetch(retailer, url, headers, { method, body });
   } else {
     const ua = await userAgent(retailer);
     if (ua) headers['user-agent'] = ua;
     const { context } = await getSession(retailer);
-    const res = await context.request.get(url, { headers, timeout: 20000, maxRedirects: 5, failOnStatusCode: false });
+    const res = await context.request.fetch(url, { method, data: body, headers, timeout: 20000, maxRedirects: 5, failOnStatusCode: false });
     r = { status: res.status(), url: res.url(), headers: res.headers(), body: await res.text() };
     await res.dispose().catch(() => {});
   }

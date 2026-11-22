@@ -10,28 +10,67 @@ import { DATA_DIR } from '../checkout/ledger.js';
 
 // ── Light checks for Target ────────────────────────────────────────────────
 // Target's product page HTML has no stock info: the page loads it afterwards
-// from Target's own product-data service (redsky.target.com … fulfillment).
-// During a normal full check we record that request, then light checks reuse
-// it for each product (only the TCIN changes) — a few KB of JSON instead of a
-// 330 KB page. If Target changes it, the next full check re-learns it.
+// with a separate data request. During a full check we look at every data
+// response the page gets from Target and learn from the one that carries the
+// product's stock status ("availability_status") — whatever its address or
+// method. Light checks then replay that request per product (only the TCIN
+// changes): a few KB of JSON instead of a 330 KB page. If it stops working,
+// the next full check re-learns it.
 const LEARNED = resolve(DATA_DIR, 'target-fulfillment.json');
-const FULFILLMENT_URL = /^https:\/\/redsky\.target\.com\/.*fulfillment/i;
+const SKIP_HEADERS = /^(cookie|user-agent|referer|origin|host|content-length|accept-encoding|accept-language|connection|sec-|priority$)/i;
 let fulfillment = (() => {
-  try { return existsSync(LEARNED) ? JSON.parse(readFileSync(LEARNED, 'utf8')) : null; } catch { return null; }
+  try {
+    const f = existsSync(LEARNED) ? JSON.parse(readFileSync(LEARNED, 'utf8')) : null;
+    if (f && !f.url && f.template) return { method: 'GET', url: f.template, body: null, headers: {} }; // older format
+    return f?.url ? f : null;
+  } catch { return null; }
 })();
+let learnedWaiters = [];
 
-function learnFulfillment(url, tcin) {
-  if (!tcin || !url.includes(tcin)) return;
-  const template = url.split(tcin).join('{TCIN}');
-  if (fulfillment?.template === template) return;
-  fulfillment = { template, learned_at: Date.now() };
+// What the last full check saw (for `npm run check` diagnostics — no keys/values).
+export const targetDebug = { seen: [] };
+
+function learnFulfillment(req, tcin) {
+  const url = req.url();
+  const body = req.postData() || null;
+  const inUrl = url.includes(tcin);
+  const inBody = !!body && body.includes(tcin);
+  if (!inUrl && !inBody) return false; // can't be reused for other products
+  const headers = {};
+  for (const [k, v] of Object.entries(req.headers())) if (!SKIP_HEADERS.test(k)) headers[k] = v;
+  const next = {
+    method: req.method(),
+    url: url.split(tcin).join('{TCIN}'),
+    body: body ? body.split(tcin).join('{TCIN}') : null,
+    headers,
+    learned_at: Date.now(),
+  };
+  const changed = !fulfillment || fulfillment.url !== next.url || fulfillment.body !== next.body || fulfillment.method !== next.method;
+  fulfillment = next;
   try { writeFileSync(LEARNED, JSON.stringify(fulfillment)); } catch {}
-  console.log('[target] learned the stock-data request — light checks enabled');
+  if (changed) console.log(`[target] learned the stock-data request (${next.method} ${new URL(url).host}${new URL(url).pathname}) — light checks enabled`);
+  for (const w of learnedWaiters) w();
+  learnedWaiters = [];
+  return true;
 }
+
+function waitUntilLearned(ms) {
+  if (fulfillment?.url) return Promise.resolve(true);
+  return new Promise((resolveWait) => {
+    const t = setTimeout(() => resolveWait(false), ms);
+    learnedWaiters.push(() => { clearTimeout(t); resolveWait(true); });
+  });
+}
+
+export function forgetTargetLearning() { forgetFulfillment(); }
 
 function forgetFulfillment() {
   fulfillment = null;
   try { writeFileSync(LEARNED, 'null'); } catch {}
+}
+
+export function isTargetLearned() {
+  return !!fulfillment?.url;
 }
 
 /** Read Target's fulfillment JSON. Exported for tests. */
@@ -74,23 +113,60 @@ export default defineRetailer({
 
   productUrl: (p) => `https://www.target.com/p/-/A-${p.tcin}`,
 
-  // Full checks: record the page's own stock-data request so light checks can reuse it.
+  // Full checks: find the data response that carries this product's stock status
+  // and remember the request behind it, so light checks can reuse it.
   watchCheck(page, product) {
-    const onRequest = (req) => {
-      const url = req.url();
-      if (FULFILLMENT_URL.test(url)) learnFulfillment(url, String(product.tcin));
+    const tcin = String(product.tcin);
+    targetDebug.seen = [];
+    const onResponse = async (res) => {
+      const req = res.request();
+      const type = req.resourceType();
+      if (type !== 'fetch' && type !== 'xhr') return;
+      let host;
+      try { host = new URL(req.url()).host; } catch { return; }
+      if (!/(^|\.)target\.com$/.test(host)) return;
+      const entry = {
+        method: req.method(), where: `${host}${new URL(req.url()).pathname}`, status: res.status(),
+        tcin: req.url().includes(tcin) ? 'url' : (req.postData() || '').includes(tcin) ? 'body' : '-', stock: false,
+      };
+      targetDebug.seen.push(entry);
+      if (res.status() !== 200) return;
+      const ct = res.headers()['content-type'] || '';
+      if (!/json/i.test(ct)) return;
+      let text;
+      try { text = await res.text(); } catch { return; }
+      if (!/"availability_status"\s*:/.test(text)) return;
+      entry.stock = true;
+      learnFulfillment(req, tcin);
     };
-    page.on('request', onRequest);
-    return () => page.off('request', onRequest);
+    page.on('response', onResponse);
+    return () => page.off('response', onResponse);
+  },
+
+  // Full check = the shared page check, plus (until learned) a few extra seconds
+  // for the stock-data request to arrive.
+  async check(page, product, ctx) {
+    const stop = this.watchCheck(page, product);
+    try {
+      const res = await this.checkPage(page, product, ctx);
+      if (!isTargetLearned()) await waitUntilLearned(10_000);
+      return res;
+    } finally {
+      stop();
+    }
   },
 
   async liteCheck(fetchLite, product) {
-    if (!fulfillment?.template) {
+    if (!fulfillment?.url) {
       // Not learned yet — skip the 330 KB page (it has no stock info); the next full check learns it.
       return { status: 'unknown', signal: 'target-api-not-learned-yet', learning: true };
     }
-    const url = fulfillment.template.split('{TCIN}').join(String(product.tcin));
-    const r = await fetchLite(url, { accept: 'application/json', referer: this.productUrl(product) });
+    const tcin = String(product.tcin);
+    const fill = (t) => (t == null ? undefined : t.split('{TCIN}').join(tcin));
+    const r = await fetchLite(fill(fulfillment.url), {
+      method: fulfillment.method, body: fill(fulfillment.body), headers: fulfillment.headers,
+      accept: fulfillment.headers?.accept || 'application/json', referer: this.productUrl(product),
+    });
     if (r.status === 401 || r.status === 403 || r.status === 410) {
       forgetFulfillment(); // key/params expired — re-learn on the next full check
       return { status: 'unknown', signal: `target-api-http-${r.status}`, learning: true };

@@ -108,7 +108,9 @@ function mock(url) {
       const tcin = p.split('A-')[1];
       // Like the real page: stock comes from a follow-up request to Target's product-data service.
       return html(`<h1>Item</h1><span>$69.99</span>${addBtn('Ship it', 'data-test="shippingButton"')}
-        <script>fetch('https://redsky.target.com/redsky_aggregations/v1/web/pdp_fulfillment_v1?key=testkey&tcin=${tcin}&store_id=1&page=%2Fp%2FA-${tcin}')</script>`);
+        <script>${scenario.targetPost
+          ? `fetch('https://www.target.com/api/v3/stock', { method: 'POST', headers: { 'content-type': 'application/json', 'x-api-key': 'k123' }, body: JSON.stringify({ tcin: '${tcin}', zip: '10001' }) })`
+          : `fetch('https://redsky.target.com/redsky_aggregations/v1/web/pdp_fulfillment_v1?key=testkey&tcin=${tcin}&store_id=1&page=%2Fp%2FA-${tcin}')`}</script>`);
     }
     if (p === '/checkout') {
       return html(`<h1>Checkout</h1><label>CVV <input id="creditCardInput-cvv"></label>
@@ -119,7 +121,9 @@ function mock(url) {
     if (p === '/cart') return html(`<h1>Cart</h1>`);
     if (p === '/s') return html(`<a href="/p/pokemon-etb/-/A-1010892076">Pokémon TCG ETB</a> <span>$49.99</span>`);
   }
-  if (u.host === 'redsky.target.com') return '{"data":{"product":{"fulfillment":{"shipping_options":{"availability_status":"IN_STOCK"}}}}}';
+  if (u.host === 'redsky.target.com' || (u.host === 'www.target.com' && p === '/api/v3/stock')) {
+    return '{"data":{"product":{"fulfillment":{"shipping_options":{"availability_status":"IN_STOCK"}}}}}';
+  }
   if (u.host === 'www.bestbuy.com') {
     if (p.startsWith('/site/')) return html(`<h1>BB item</h1>
       <button class="add-to-cart-button" data-button-state="ADD_TO_CART" id="b">Add to Cart</button><div id="m"></div>
@@ -195,7 +199,8 @@ hooks.onContext = async (context) => {
     const url = route.request().url();
     seen.push(url);
     const body = mock(url);
-    if (body) return route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body });
+    const json = body && body.startsWith('{');
+    if (body) return route.fulfill({ status: 200, contentType: json ? 'application/json' : 'text/html; charset=utf-8', body });
     return route.fulfill({ status: 204, body: '' }); // never hit the network
   });
 };
@@ -688,12 +693,16 @@ await test('Target: a full check learns the stock-data request; light checks the
 
   const { monitorPage } = await import('../src/session.js');
   const { liteCheck } = await import('../src/lite.js');
+  const { forgetTargetLearning, isTargetLearned, targetDebug } = await import('../src/retailers/target.js');
   const { existsSync, readFileSync } = await import('fs');
   const target = getAdapter('target');
-  // One full check (as the monitor does) → learns the request.
+  forgetTargetLearning();
+  // One full check (as the monitor does) → learns the request from the response that has the stock status.
   await target.check(await monitorPage('target'), P('target', '1010892078'), ctxFor());
   const learnedFile = join(process.env.DROPBOT_DATA_DIR, 'target-fulfillment.json');
-  expect(existsSync(learnedFile) && JSON.parse(readFileSync(learnedFile, 'utf8'))?.template?.includes('tcin={TCIN}'), 'template not learned');
+  const learned = existsSync(learnedFile) && JSON.parse(readFileSync(learnedFile, 'utf8'));
+  expect(isTargetLearned() && learned?.method === 'GET' && learned.url.includes('tcin={TCIN}'), `not learned: ${JSON.stringify(learned)}`);
+  expect(targetDebug.seen.some(e => e.stock && e.tcin === 'url'), `debug list: ${JSON.stringify(targetDebug.seen)}`);
   const asked = [];
   liteHooks.fetch = async (_r, url, headers) => {
     asked.push({ url, accept: headers.accept });
@@ -704,7 +713,8 @@ await test('Target: a full check learns the stock-data request; light checks the
     const oos = await liteCheck(target, P('target', '999'));
     const inn = await liteCheck(target, P('target', '1010892076'));
     expect(oos.status === 'oos' && inn.status === 'in_stock', `${JSON.stringify(oos)} ${JSON.stringify(inn)}`);
-    expect(asked.length === 2 && asked.every(a => a.url.startsWith('https://redsky.target.com/') && a.accept === 'application/json'), JSON.stringify(asked));
+    // Replays the request the page made (same address + headers, e.g. the page's own Accept).
+    expect(asked.length === 2 && asked.every(a => a.url.startsWith('https://redsky.target.com/') && a.accept), JSON.stringify(asked));
     expect(asked[0].url.includes('tcin=999') && asked[0].url.includes('page=%2Fp%2FA-999') && !asked[0].url.includes('1010892078'), `tcin not swapped: ${asked[0].url}`);
     // Expired key → forget and re-learn on the next full check.
     liteHooks.fetch = async (_r, url) => ({ status: 403, url, headers: {}, body: '' });
@@ -712,7 +722,24 @@ await test('Target: a full check learns the stock-data request; light checks the
     expect(exp.status === 'unknown' && exp.learning, JSON.stringify(exp));
     const again = await liteCheck(target, P('target', '999'));
     expect(again.signal === 'target-api-not-learned-yet', 'should wait for re-learning');
+
+    // A POST-style stock request (product id in the body, custom header) is learned and replayed too.
+    scenario.targetPost = true;
+    await target.check(await monitorPage('target'), P('target', '1010892078'), ctxFor());
+    scenario.targetPost = false;
+    const post = JSON.parse(readFileSync(learnedFile, 'utf8'));
+    expect(post?.method === 'POST' && post.body.includes('{TCIN}') && post.headers['x-api-key'] === 'k123', `POST not learned: ${JSON.stringify(post)}`);
+    const sentPost = [];
+    liteHooks.fetch = async (_r, url, headers, opts) => {
+      sentPost.push({ url, headers, opts });
+      return { status: 200, url, headers: {}, body: fj('OUT_OF_STOCK') };
+    };
+    const viaPost = await liteCheck(target, P('target', '999'));
+    expect(viaPost.status === 'oos', JSON.stringify(viaPost));
+    const sp = sentPost[0];
+    expect(sp.opts.method === 'POST' && sp.opts.body.includes('"tcin":"999"') && sp.headers['x-api-key'] === 'k123' && sp.url.endsWith('/api/v3/stock'), JSON.stringify(sp));
   } finally {
+    scenario.targetPost = false;
     liteHooks.fetch = NO_NET;
   }
 });

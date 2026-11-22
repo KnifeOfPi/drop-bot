@@ -66,5 +66,12 @@ if (liteOnly) {
 const page = await monitorPage(retailer);
 const res = await adapter.check(page, product, { settings, timeout: settings.step_timeout_seconds * 1000, log: console.log });
 console.log(JSON.stringify(res, null, 2));
+if (retailer === 'target') {
+  const { targetDebug, isTargetLearned } = await import('./retailers/target.js');
+  console.log(`\nTarget stock-data request learned: ${isTargetLearned() ? 'YES' : 'no'}`);
+  console.log('Data requests the page made (method · where · HTTP status · product id in · has stock status):');
+  for (const e of targetDebug.seen.slice(0, 30)) console.log(`  ${e.method.padEnd(5)} ${e.where.slice(0, 90).padEnd(90)} ${e.status}  id:${e.tcin}  stock:${e.stock ? 'YES' : '-'}`);
+  if (!targetDebug.seen.length) console.log('  (none seen)');
+}
 await closeAll();
 process.exit(0);
