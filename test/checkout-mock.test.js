@@ -104,7 +104,12 @@ function mock(url) {
   const p = u.pathname;
   if (u.host === 'www.target.com') {
     if (p === '/p/-/A-999') return html(`<h1>OOS item</h1><p>Out of stock</p><button>Notify me when it's back</button>`);
-    if (p.startsWith('/p/-/A-')) return html(`<h1>Item</h1><span>$69.99</span>${addBtn('Ship it', 'data-test="shippingButton"')}`);
+    if (p.startsWith('/p/-/A-')) {
+      const tcin = p.split('A-')[1];
+      // Like the real page: stock comes from a follow-up request to Target's product-data service.
+      return html(`<h1>Item</h1><span>$69.99</span>${addBtn('Ship it', 'data-test="shippingButton"')}
+        <script>fetch('https://redsky.target.com/redsky_aggregations/v1/web/pdp_fulfillment_v1?key=testkey&tcin=${tcin}&store_id=1&page=%2Fp%2FA-${tcin}')</script>`);
+    }
     if (p === '/checkout') {
       return html(`<h1>Checkout</h1><label>CVV <input id="creditCardInput-cvv"></label>
         <div>Order total</div><div>$${scenario.targetTotal || '74.21'}</div>
@@ -114,6 +119,7 @@ function mock(url) {
     if (p === '/cart') return html(`<h1>Cart</h1>`);
     if (p === '/s') return html(`<a href="/p/pokemon-etb/-/A-1010892076">Pokémon TCG ETB</a> <span>$49.99</span>`);
   }
+  if (u.host === 'redsky.target.com') return '{"data":{"product":{"fulfillment":{"shipping_options":{"availability_status":"IN_STOCK"}}}}}';
   if (u.host === 'www.bestbuy.com') {
     if (p.startsWith('/site/')) return html(`<h1>BB item</h1>
       <button class="add-to-cart-button" data-button-state="ADD_TO_CART" id="b">Add to Cart</button><div id="m"></div>
@@ -668,6 +674,46 @@ await test('Daily proxy data limit pauses the bot, a manual resume sticks, and i
   } finally {
     setProxyUrl('');
     writeConfig();
+  }
+});
+
+await test('Target: a full check learns the stock-data request; light checks then use it (few KB, no page)', async () => {
+  const { parseTargetFulfillment } = await import('../src/retailers/target.js');
+  const fj = (st) => `{"data":{"product":{"tcin":"1","fulfillment":{"store_options":[{"order_pickup":{"availability_status":"UNAVAILABLE"}}],"shipping_options":{"availability_status":"${st}","loyalty_availability_status":"${st}"}}}}}`;
+  expect(parseTargetFulfillment(fj('IN_STOCK'))?.status === 'in_stock', 'IN_STOCK');
+  expect(parseTargetFulfillment(fj('PRE_ORDER_SELLABLE'))?.status === 'in_stock', 'preorder');
+  expect(parseTargetFulfillment(fj('OUT_OF_STOCK'))?.status === 'oos', 'OOS');
+  expect(parseTargetFulfillment(fj('UNAVAILABLE'))?.status === 'oos', 'UNAVAILABLE');
+  expect(parseTargetFulfillment('{"nope":1}') === null, 'no status → null');
+
+  const { monitorPage } = await import('../src/session.js');
+  const { liteCheck } = await import('../src/lite.js');
+  const { existsSync, readFileSync } = await import('fs');
+  const target = getAdapter('target');
+  // One full check (as the monitor does) → learns the request.
+  await target.check(await monitorPage('target'), P('target', '1010892078'), ctxFor());
+  const learnedFile = join(process.env.DROPBOT_DATA_DIR, 'target-fulfillment.json');
+  expect(existsSync(learnedFile) && JSON.parse(readFileSync(learnedFile, 'utf8'))?.template?.includes('tcin={TCIN}'), 'template not learned');
+  const asked = [];
+  liteHooks.fetch = async (_r, url, headers) => {
+    asked.push({ url, accept: headers.accept });
+    const st = url.includes('tcin=999') ? 'OUT_OF_STOCK' : 'IN_STOCK';
+    return { status: 200, url, headers: { 'content-length': '900' }, body: fj(st) };
+  };
+  try {
+    const oos = await liteCheck(target, P('target', '999'));
+    const inn = await liteCheck(target, P('target', '1010892076'));
+    expect(oos.status === 'oos' && inn.status === 'in_stock', `${JSON.stringify(oos)} ${JSON.stringify(inn)}`);
+    expect(asked.length === 2 && asked.every(a => a.url.startsWith('https://redsky.target.com/') && a.accept === 'application/json'), JSON.stringify(asked));
+    expect(asked[0].url.includes('tcin=999') && asked[0].url.includes('page=%2Fp%2FA-999') && !asked[0].url.includes('1010892078'), `tcin not swapped: ${asked[0].url}`);
+    // Expired key → forget and re-learn on the next full check.
+    liteHooks.fetch = async (_r, url) => ({ status: 403, url, headers: {}, body: '' });
+    const exp = await liteCheck(target, P('target', '999'));
+    expect(exp.status === 'unknown' && exp.learning, JSON.stringify(exp));
+    const again = await liteCheck(target, P('target', '999'));
+    expect(again.signal === 'target-api-not-learned-yet', 'should wait for re-learning');
+  } finally {
+    liteHooks.fetch = NO_NET;
   }
 });
 

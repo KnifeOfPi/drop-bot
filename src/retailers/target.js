@@ -4,6 +4,45 @@
 
 import { defineRetailer } from './base.js';
 import { CheckoutError, clickFirst, findFirst, fillIfPresent, waitForAny, textMatches, bodyText, waitOutQueue, trySolveCaptcha } from '../checkout/helpers.js';
+import { readFileSync, writeFileSync, existsSync } from 'fs';
+import { resolve } from 'path';
+import { DATA_DIR } from '../checkout/ledger.js';
+
+// ── Light checks for Target ────────────────────────────────────────────────
+// Target's product page HTML has no stock info: the page loads it afterwards
+// from Target's own product-data service (redsky.target.com … fulfillment).
+// During a normal full check we record that request, then light checks reuse
+// it for each product (only the TCIN changes) — a few KB of JSON instead of a
+// 330 KB page. If Target changes it, the next full check re-learns it.
+const LEARNED = resolve(DATA_DIR, 'target-fulfillment.json');
+const FULFILLMENT_URL = /^https:\/\/redsky\.target\.com\/.*fulfillment/i;
+let fulfillment = (() => {
+  try { return existsSync(LEARNED) ? JSON.parse(readFileSync(LEARNED, 'utf8')) : null; } catch { return null; }
+})();
+
+function learnFulfillment(url, tcin) {
+  if (!tcin || !url.includes(tcin)) return;
+  const template = url.split(tcin).join('{TCIN}');
+  if (fulfillment?.template === template) return;
+  fulfillment = { template, learned_at: Date.now() };
+  try { writeFileSync(LEARNED, JSON.stringify(fulfillment)); } catch {}
+  console.log('[target] learned the stock-data request — light checks enabled');
+}
+
+function forgetFulfillment() {
+  fulfillment = null;
+  try { writeFileSync(LEARNED, 'null'); } catch {}
+}
+
+/** Read Target's fulfillment JSON. Exported for tests. */
+export function parseTargetFulfillment(body) {
+  const ship = body.indexOf('"shipping_options"');
+  const seg = ship >= 0 ? body.slice(ship, ship + 3000) : body;
+  const m = seg.match(/"availability_status"\s*:\s*"([A-Z_]+)"/);
+  if (!m) return null;
+  const status = /^(IN_STOCK|LIMITED_STOCK|PRE_ORDER_SELLABLE)$/.test(m[1]) ? 'in_stock' : 'oos';
+  return { status, signal: `target-api:${m[1]}` };
+}
 
 const ATC = [
   'button[data-test="shippingButton"]',
@@ -34,6 +73,31 @@ export default defineRetailer({
   confirmText: /thanks for your order|order (number|#)\s*:?\s*\d/i,
 
   productUrl: (p) => `https://www.target.com/p/-/A-${p.tcin}`,
+
+  // Full checks: record the page's own stock-data request so light checks can reuse it.
+  watchCheck(page, product) {
+    const onRequest = (req) => {
+      const url = req.url();
+      if (FULFILLMENT_URL.test(url)) learnFulfillment(url, String(product.tcin));
+    };
+    page.on('request', onRequest);
+    return () => page.off('request', onRequest);
+  },
+
+  async liteCheck(fetchLite, product) {
+    if (!fulfillment?.template) {
+      // Not learned yet — skip the 330 KB page (it has no stock info); the next full check learns it.
+      return { status: 'unknown', signal: 'target-api-not-learned-yet', learning: true };
+    }
+    const url = fulfillment.template.split('{TCIN}').join(String(product.tcin));
+    const r = await fetchLite(url, { accept: 'application/json', referer: this.productUrl(product) });
+    if (r.status === 401 || r.status === 403 || r.status === 410) {
+      forgetFulfillment(); // key/params expired — re-learn on the next full check
+      return { status: 'unknown', signal: `target-api-http-${r.status}`, learning: true };
+    }
+    if (r.status !== 200) return { status: 'unknown', signal: `target-api-http-${r.status}` };
+    return parseTargetFulfillment(r.body || '') || { status: 'unknown', signal: 'target-api-no-status' };
+  },
   searchUrl: (q) => `https://www.target.com/s?searchTerm=${encodeURIComponent(q)}`,
   listingRe: /target\.com\/p\/[^?#]*?\/-\/A-(\d+)/,
   toProduct: (l) => ({ retailer: 'target', tcin: l.id }),

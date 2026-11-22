@@ -78,7 +78,7 @@ async function checkProduct(retailer, adapter, product, settings, hot, ctx) {
       st.unclear = 0; st.definite++;
       ctx.log(`${product.label}: light check says ${l.status} (${l.signal}) — confirming with a full check`);
     } else {
-      st.unclear++;
+      if (!l.learning) st.unclear++; // "still learning" (e.g. Target) doesn't count toward giving up
       if (st.unclear >= LITE_GIVE_UP && st.definite === 0) {
         st.off_until = Date.now() + 6 * 3600_000;
         st.unclear = 0;

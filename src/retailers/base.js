@@ -60,6 +60,16 @@ export function defineRetailer(spec) {
   };
 
   r.check ??= async function (page, product, ctx) {
+    // Optional per-store hook: watch the requests the page makes during a full check.
+    const stop = this.watchCheck?.(page, product);
+    try {
+      return await this.checkPage(page, product, ctx);
+    } finally {
+      stop?.();
+    }
+  };
+
+  r.checkPage ??= async function (page, product, ctx) {
     await gotoProduct(this, page, product, ctx);
     if (await inQueue(page)) return { status: 'queue', price: 'N/A', title: product.label };
     if (await captchaPresent(page)) return { status: 'blocked', price: 'N/A', title: product.label, error: 'captcha on product page' };
