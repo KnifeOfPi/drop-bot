@@ -6,7 +6,7 @@
 //   login   — you're signing in to a store from the dashboard (Accounts page)
 
 import { getHandoff } from './checkout/index.js';
-import { newPage } from './session.js';
+import { newPage, closeSession, openSessions } from './session.js';
 import { getAdapter } from './retailers/index.js';
 import { markLogin } from './accounts.js';
 import { loadConfigFresh, getCheckoutSettings } from './config.js';
@@ -40,6 +40,13 @@ export async function openLoginSession(retailer) {
   return id;
 }
 
+/** While paused, close a store's browser again once a one-off action is done. */
+async function closeIfPaused(retailer) {
+  if (!loadConfigFresh()?.paused) return;
+  if ([...loginSessions.values()].some((l) => l.retailer === retailer && !l.page.isClosed())) return;
+  if (openSessions().includes(retailer)) await closeSession(retailer);
+}
+
 /** Close a sign-in session and (optionally) re-check whether the store now looks signed in. */
 export async function closeLoginSession(id, { check = true } = {}) {
   const s = loginSessions.get(id);
@@ -49,6 +56,7 @@ export async function closeLoginSession(id, { check = true } = {}) {
   let result = null;
   if (check && !s.page.isClosed()) result = await checkLoginOn(s.retailer, s.page).catch(() => null);
   if (!s.page.isClosed()) await s.page.close().catch(() => {});
+  await closeIfPaused(s.retailer);
   return result;
 }
 
@@ -68,6 +76,7 @@ export async function checkLogin(retailer) {
     return await checkLoginOn(retailer, page);
   } finally {
     await page.close().catch(() => {});
+    await closeIfPaused(retailer);
   }
 }
 

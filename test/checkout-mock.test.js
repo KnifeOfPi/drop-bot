@@ -777,6 +777,26 @@ await test('Pause closes every store browser, stops all loading, and Resume brin
   expect(back, 'watching did not resume');
 });
 
+await test('While paused you can still sign in and check accounts; the store browser closes again after', async () => {
+  const { setPaused } = await import('../src/pause.js');
+  const { openSessions } = await import('../src/session.js');
+  const { checkLogin } = await import('../src/live.js');
+  await setPaused(true);
+  try {
+    scenario.walmartLoggedIn = false;
+    const id = await openLoginSession('walmart');
+    expect(openSessions().includes('walmart') && (await liveFrame(id))?.kind === 'login', 'sign-in should open while paused');
+    scenario.walmartLoggedIn = true; // as if you signed in via Live view
+    const ok = await closeLoginSession(id, { check: true });
+    expect(ok === true, `sign-in check → ${ok}`);
+    expect(!openSessions().includes('walmart'), `browser left open while paused: ${openSessions()}`);
+    expect(await checkLogin('walmart') === true, 'account check while paused');
+    expect(openSessions().length === 0, `browsers left open after check: ${openSessions()}`);
+  } finally {
+    await setPaused(false);
+  }
+});
+
 console.log(`\n${passed} passed, ${failed} failed\n`);
 await closeAll();
 hookServer.close();

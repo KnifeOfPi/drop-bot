@@ -121,10 +121,11 @@ function statusBody() {
 
 // ── Routes ─────────────────────────────────────────────────────────────────
 
-// Actions that open a store browser — refused while paused.
+// Automation that opens a store browser — refused while paused. Signing in,
+// checking an account and testing the proxy stay allowed: they're one-off actions
+// you start yourself, and the store's browser closes again afterwards.
 const NEEDS_BROWSER = new Set([
   '/checkout/test', '/flow/start', '/drawing/enter', '/discovery/run',
-  '/accounts/login', '/accounts/check', '/accounts/proxy/test',
 ]);
 
 async function route(req, res, url) {

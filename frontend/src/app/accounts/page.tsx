@@ -113,6 +113,12 @@ export default function Accounts() {
 
       <div className="p-4 sm:p-6 space-y-4 max-w-3xl">
         {error && <div className="p-3 bg-red-900/50 border border-red-700 rounded-lg text-red-200 text-xs sm:text-sm">⚠️ Bot unreachable: {error}</div>}
+        {status?.pause?.paused && (
+          <div className="p-3 rounded-lg border border-zinc-600 bg-zinc-900 text-[11px] sm:text-xs text-zinc-300">
+            ⏸ The bot is paused. You can still <b>sign in</b>, <b>check</b> accounts and <b>test the proxy</b> here — each opens that
+            store&apos;s browser just for that and closes it again. Watching and checkout stay off until you tap Resume on the dashboard.
+          </div>
+        )}
 
         <div className="p-3 rounded-lg border border-zinc-800 bg-zinc-900/40 text-[11px] sm:text-xs text-zinc-400 space-y-1">
           <p><b className="text-zinc-200">Sign in</b> opens the store&apos;s login page in the bot&apos;s browser. Type your email, password and any 2FA code in Live view — the login is saved on the bot&apos;s server and reused for queues and checkout.</p>
