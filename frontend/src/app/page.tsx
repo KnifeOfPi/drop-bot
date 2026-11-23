@@ -105,13 +105,13 @@ export default function Dashboard() {
   products.sort((a, b) => Number(hot(b.status)) - Number(hot(a.status)));
 
   return (
-    <main className="min-h-screen bg-zinc-950 text-zinc-100 font-mono">
-      <header className="sticky top-0 z-20 bg-zinc-950/95 backdrop-blur border-b border-zinc-800 px-4 py-3">
+    <main className="min-h-screen bg-zinc-950 text-zinc-100">
+      <header className="sticky top-0 z-20 pokedex-header px-4 py-3">
         <div className="flex items-center justify-between gap-2">
           <div className="min-w-0">
             <h1 className="text-lg sm:text-2xl font-bold flex items-center gap-2">
-              <span className="text-2xl sm:text-3xl">⚡</span>
-              <span className="hidden sm:inline">Drop Bot</span>
+              <span className="pokeball text-xl sm:text-2xl" aria-hidden />
+              <span>Drop Bot</span>
             </h1>
             <p className="text-zinc-500 text-xs mt-0.5 hidden sm:block">
               {status ? `${status.products.length} products · ${status.retailers.length} stores` : "Loading..."}
@@ -124,20 +124,20 @@ export default function Dashboard() {
               <button
                 onClick={togglePause}
                 disabled={pausing}
-                className={`px-2 sm:px-3 py-1 rounded text-[10px] sm:text-xs font-bold whitespace-nowrap disabled:opacity-50 ${
+                className={`px-2 sm:px-3 py-1 rounded-xl text-[10px] sm:text-xs font-bold whitespace-nowrap disabled:opacity-50 ${
                   paused ? "bg-green-700 hover:bg-green-600 text-white" : "bg-zinc-800 hover:bg-zinc-700 text-zinc-200"}`}
               >
                 {pausing ? "…" : paused ? "▶ Resume" : "⏸ Pause"}
               </button>
             )}
             {modeBadge && !paused && (
-              <Link href="/settings?tab=checkout" className={`px-2 py-0.5 rounded text-[10px] sm:text-xs font-bold whitespace-nowrap ${modeBadge.cls}`}>
+              <Link href="/settings?tab=checkout" className={`px-2 py-0.5 rounded-xl text-[10px] sm:text-xs font-bold whitespace-nowrap ${modeBadge.cls}`}>
                 {modeBadge.text}
               </Link>
             )}
-            <Link href="/accounts" className="hidden sm:inline px-3 py-1 rounded text-xs bg-zinc-800 hover:bg-zinc-700 text-zinc-400">🔐 Accounts</Link>
-            <Link href="/settings" className="hidden sm:inline px-3 py-1 rounded text-xs bg-zinc-800 hover:bg-zinc-700 text-zinc-400">⚙️ Settings</Link>
-            <button onClick={() => setMenuOpen(!menuOpen)} className="sm:hidden p-2 rounded hover:bg-zinc-800">
+            <Link href="/accounts" className="hidden sm:inline px-3 py-1 rounded-xl text-xs bg-zinc-800 hover:bg-zinc-700 text-zinc-400">🔐 Accounts</Link>
+            <Link href="/settings" className="hidden sm:inline px-3 py-1 rounded-xl text-xs bg-zinc-800 hover:bg-zinc-700 text-zinc-400">⚙️ Settings</Link>
+            <button onClick={() => setMenuOpen(!menuOpen)} className="sm:hidden p-2 rounded-xl hover:bg-zinc-800">
               <span className="text-lg">{menuOpen ? "✕" : "☰"}</span>
             </button>
           </div>
@@ -145,15 +145,15 @@ export default function Dashboard() {
         {menuOpen && (
           <div className="mt-3 flex flex-col gap-2 sm:hidden border-t border-zinc-800 pt-3">
             <div className="text-xs text-zinc-400">Uptime: {uptime} · PID {status?.pid ?? "?"}</div>
-            <Link href="/accounts" className="w-full py-2 px-3 rounded text-sm bg-zinc-800 text-zinc-300 text-center">🔐 Accounts</Link>
-            <Link href="/settings" className="w-full py-2 px-3 rounded text-sm bg-zinc-800 text-zinc-300 text-center">⚙️ Settings</Link>
+            <Link href="/accounts" className="w-full py-2 px-3 rounded-xl text-sm bg-zinc-800 text-zinc-300 text-center">🔐 Accounts</Link>
+            <Link href="/settings" className="w-full py-2 px-3 rounded-xl text-sm bg-zinc-800 text-zinc-300 text-center">⚙️ Settings</Link>
           </div>
         )}
       </header>
 
       <div className="p-4 sm:p-6 space-y-6">
         {error && (
-          <div className="p-3 sm:p-4 bg-red-900/50 border border-red-700 rounded-lg text-red-200 text-xs sm:text-sm">
+          <div className="p-3 sm:p-4 bg-red-900/50 border border-red-700 rounded-2xl text-red-200 text-xs sm:text-sm">
             ⚠️ Daemon unreachable: {error}
             <span className="text-zinc-500 ml-2">(last: {lastFetch ? new Date(lastFetch).toLocaleTimeString() : "never"})</span>
           </div>
@@ -161,7 +161,7 @@ export default function Dashboard() {
 
         {/* ── Paused ── */}
         {paused && (
-          <div className="p-3 sm:p-4 rounded-lg border-2 border-zinc-600 bg-zinc-900 flex items-center justify-between gap-3">
+          <div className="p-3 sm:p-4 rounded-2xl border-2 border-zinc-600 bg-zinc-900 flex items-center justify-between gap-3">
             <div className="min-w-0">
               <p className="font-bold text-sm sm:text-base">
                 {status?.pause?.reason === "data_limit" ? "⏸ Paused — daily proxy data limit reached" : "⏸ Bot paused"}
@@ -174,7 +174,7 @@ export default function Dashboard() {
               </p>
               {msg.pause && <p className="text-[10px] text-blue-300 mt-1">{msg.pause}</p>}
             </div>
-            <button onClick={togglePause} disabled={pausing} className="shrink-0 px-3 py-2 rounded-lg bg-green-700 hover:bg-green-600 text-white text-xs sm:text-sm font-bold disabled:opacity-50">
+            <button onClick={togglePause} disabled={pausing} className="shrink-0 px-3 py-2 rounded-2xl bg-green-700 hover:bg-green-600 text-white text-xs sm:text-sm font-bold disabled:opacity-50">
               ▶ Resume
             </button>
           </div>
@@ -183,7 +183,7 @@ export default function Dashboard() {
 
         {/* ── Sign-in needed ── */}
         {!paused && needsLogin.length > 0 && (
-          <Link href="/accounts" className="block p-3 rounded-lg border border-amber-700 bg-amber-900/20 text-amber-200 text-xs sm:text-sm">
+          <Link href="/accounts" className="block p-3 rounded-2xl border border-amber-700 bg-amber-900/20 text-amber-200 text-xs sm:text-sm">
             🔐 Sign in to {needsLogin.map((r) => retailerInfo(r)?.name || r).join(", ")} so the bot can queue and check out there →
           </Link>
         )}
@@ -192,7 +192,7 @@ export default function Dashboard() {
         {handoffs.length > 0 && (
           <section className="space-y-2">
             {handoffs.map((h) => (
-              <div key={h.id} className="p-3 sm:p-4 rounded-lg border-2 border-yellow-500 bg-yellow-900/30 shadow-lg shadow-yellow-900/30">
+              <div key={h.id} className="p-3 sm:p-4 rounded-2xl border-2 border-yellow-500 bg-yellow-900/30 shadow-lg shadow-yellow-900/30">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <p className="text-yellow-200 font-bold text-sm sm:text-base">🙋 YOUR TURN — {h.label}</p>
@@ -203,16 +203,16 @@ export default function Dashboard() {
                   </div>
                 </div>
                 <div className="mt-3 grid grid-cols-3 gap-2">
-                  <Link href={`/live?id=${h.id}`} className="col-span-3 sm:col-span-1 py-3 rounded-lg bg-yellow-500 hover:bg-yellow-400 text-black font-bold text-center text-sm">
+                  <Link href={`/live?id=${h.id}`} className="col-span-3 sm:col-span-1 py-3 rounded-2xl bg-yellow-500 hover:bg-yellow-400 text-black font-bold text-center text-sm">
                     📱 Open Live view
                   </Link>
                   <button
                     onClick={() => act(`h:${h.id}`, "/api/d/handoff/resolve", { id: h.id, outcome: "success" })}
-                    className="col-span-3 sm:col-span-1 py-2 rounded-lg bg-green-700 hover:bg-green-600 text-white text-xs sm:text-sm"
+                    className="col-span-3 sm:col-span-1 py-2 rounded-2xl bg-green-700 hover:bg-green-600 text-white text-xs sm:text-sm"
                   >✅ I bought it</button>
                   <button
                     onClick={() => act(`h:${h.id}`, "/api/d/handoff/resolve", { id: h.id, outcome: "abandoned" }, "Close this session without buying?")}
-                    className="col-span-3 sm:col-span-1 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs sm:text-sm"
+                    className="col-span-3 sm:col-span-1 py-2 rounded-2xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs sm:text-sm"
                   >↩️ Didn&apos;t buy</button>
                 </div>
                 {msg[`h:${h.id}`] && <p className="text-[10px] text-yellow-200 mt-2">{msg[`h:${h.id}`]}</p>}
@@ -225,7 +225,7 @@ export default function Dashboard() {
         {busy.length > 0 && (
           <section className="space-y-2">
             {busy.map(([retailer, b]) => (
-              <div key={retailer} className="p-3 rounded-lg border border-blue-700 bg-blue-900/20 text-blue-100 text-xs sm:text-sm flex items-center gap-2">
+              <div key={retailer} className="p-3 rounded-2xl border border-blue-700 bg-blue-900/20 text-blue-100 text-xs sm:text-sm flex items-center gap-2">
                 <span className="animate-pulse">{b.in_queue ? "🔵" : b.kind === "drawing" ? "🎟️" : "⏳"}</span>
                 <span className="min-w-0 break-words">
                   {b.in_queue ? "In the queue" : b.kind === "drawing" ? "Entering drawing" : b.mode === "dry_run" ? "Dry run" : b.mode === "checkout" ? "Checking out" : "Getting it into your cart"}
@@ -239,7 +239,7 @@ export default function Dashboard() {
         {/* ── Stores ── */}
         <section>
           <div className="flex items-center justify-between mb-3">
-            <h2 className="text-xs sm:text-sm text-zinc-500 uppercase tracking-wider">Stores</h2>
+            <h2 className="text-xs sm:text-sm section-title uppercase tracking-wider">Stores</h2>
             {status?.bandwidth && (
               <Link href="/accounts" className="text-[10px] sm:text-xs text-zinc-500">
                 📶 {fmtBytes(status.bandwidth.proxy_today)} proxy today
@@ -255,12 +255,12 @@ export default function Dashboard() {
                 <button
                   key={r.retailer}
                   onClick={() => setFilter(filter === r.retailer ? "all" : r.retailer)}
-                  className={`p-3 rounded-lg border text-left transition-colors ${filter === r.retailer ? "ring-1 ring-zinc-400" : ""} ${
+                  className={`p-3 rounded-2xl border text-left transition-colors ${filter === r.retailer ? "ring-1 ring-zinc-400" : ""} ${
                     healthy ? "border-zinc-700 bg-zinc-900" : "border-red-700 bg-red-900/20"}`}
                 >
                   <div className="flex items-center justify-between mb-1">
                     <span className="font-semibold text-xs sm:text-sm truncate">{info?.emoji} {r.name}</span>
-                    {r.errors > 0 && <span className="text-[10px] px-1 rounded bg-red-900/50 text-red-300">{r.errors}✗</span>}
+                    {r.errors > 0 && <span className="text-[10px] px-1 rounded-xl bg-red-900/50 text-red-300">{r.errors}✗</span>}
                   </div>
                   <div className="text-[10px] text-zinc-500">
                     {r.last_tick ? `checked ${ago(r.last_tick)}` : r.session_open ? "starting…" : "not started"}
@@ -285,7 +285,7 @@ export default function Dashboard() {
         {/* ── Products ── */}
         <section>
           <div className="flex items-center justify-between mb-3">
-            <h2 className="text-xs sm:text-sm text-zinc-500 uppercase tracking-wider">
+            <h2 className="text-xs sm:text-sm section-title uppercase tracking-wider">
               Watchlist {filter !== "all" && <span className="normal-case">· {retailerInfo(filter)?.name}</span>}
             </h2>
             {filter !== "all" && <button onClick={() => setFilter("all")} className="text-[10px] text-zinc-500 underline">show all</button>}
@@ -297,7 +297,7 @@ export default function Dashboard() {
               const isBusy = !!co?.busy[p.retailer];
               const k = p.key;
               return (
-                <div key={k} className={`p-3 sm:p-4 rounded-lg border bg-zinc-900/50 ${hot(p.status) ? "border-green-700" : "border-zinc-800"}`}>
+                <div key={k} className={`p-3 sm:p-4 rounded-2xl border bg-zinc-900/50 ${hot(p.status) ? "border-green-700" : "border-zinc-800"}`}>
                   <div className="flex items-start justify-between gap-2 mb-2">
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium leading-snug break-words">
@@ -305,10 +305,10 @@ export default function Dashboard() {
                       </p>
                       <p className="text-[10px] text-zinc-500 mt-0.5 truncate">{p.sku}</p>
                     </div>
-                    <span className={`shrink-0 text-[10px] sm:text-xs px-1.5 py-0.5 rounded font-bold whitespace-nowrap ${badge.cls}`}>{badge.text}</span>
+                    <span className={`shrink-0 text-[10px] sm:text-xs px-1.5 py-0.5 rounded-xl font-bold whitespace-nowrap ${badge.cls}`}>{badge.text}</span>
                   </div>
                   <div className="flex items-center justify-between text-[10px] sm:text-xs text-zinc-500">
-                    <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] uppercase ${info?.color || "bg-zinc-700"} text-white`}>{info?.name || p.retailer}</span>
+                    <span className={`inline-block px-1.5 py-0.5 rounded-xl text-[10px] uppercase ${info?.color || "bg-zinc-700"} text-white`}>{info?.name || p.retailer}</span>
                     <span>{p.price !== "N/A" ? p.price : "—"}{p.max_price ? <span className="text-zinc-600"> / max ${p.max_price}</span> : null}</span>
                   </div>
                   <div className="flex items-center justify-between mt-2 text-[10px]">
@@ -323,19 +323,19 @@ export default function Dashboard() {
                       disabled={isBusy}
                       onClick={() => act(k, "/api/d/flow/start", { retailer: p.retailer, id: p.sku, mode: "assist" },
                         `Go for ${p.label} now? The bot joins the queue, adds it to your cart and pings you to finish.`)}
-                      className="px-2 py-1 rounded text-[10px] sm:text-xs bg-green-800 hover:bg-green-700 text-green-100 disabled:opacity-40"
+                      className="px-2 py-1 rounded-xl text-[10px] sm:text-xs bg-green-800 hover:bg-green-700 text-green-100 disabled:opacity-40"
                     >🛒 Go now</button>
                     <button
                       disabled={isBusy}
                       onClick={() => act(k, "/api/d/checkout/test", { retailer: p.retailer, id: p.sku },
                         "Run a DRY RUN? It adds the item to your cart and stops at Place order.")}
-                      className="px-2 py-1 rounded text-[10px] sm:text-xs bg-zinc-800 hover:bg-zinc-700 text-zinc-300 disabled:opacity-40"
+                      className="px-2 py-1 rounded-xl text-[10px] sm:text-xs bg-zinc-800 hover:bg-zinc-700 text-zinc-300 disabled:opacity-40"
                     >🧪 Test</button>
                     {(p.status === "drawing_open" || p.retailer === "walmart" || p.retailer === "best-buy" || p.retailer === "target") && (
                       <button
                         disabled={isBusy}
                         onClick={() => act(k, "/api/d/drawing/enter", { retailer: p.retailer, id: p.sku })}
-                        className={`px-2 py-1 rounded text-[10px] sm:text-xs disabled:opacity-40 ${p.status === "drawing_open" ? "bg-purple-700 hover:bg-purple-600 text-white" : "bg-zinc-800 hover:bg-zinc-700 text-zinc-400"}`}
+                        className={`px-2 py-1 rounded-xl text-[10px] sm:text-xs disabled:opacity-40 ${p.status === "drawing_open" ? "bg-purple-700 hover:bg-purple-600 text-white" : "bg-zinc-800 hover:bg-zinc-700 text-zinc-400"}`}
                       >🎟️ Enter drawing</button>
                     )}
                   </div>
@@ -351,15 +351,15 @@ export default function Dashboard() {
         {co && (
           <section>
             <div className="flex items-center justify-between mb-3">
-              <h2 className="text-xs sm:text-sm text-zinc-500 uppercase tracking-wider">Activity</h2>
+              <h2 className="text-xs sm:text-sm section-title uppercase tracking-wider">Activity</h2>
               <span className="text-[10px] sm:text-xs text-zinc-500">${co.spend_total.toFixed(2)} / ${co.max_total_spend} spent</span>
             </div>
             {co.recent.length === 0 ? (
-              <div className="p-3 rounded-lg border border-zinc-800 bg-zinc-900/50 text-zinc-600 text-xs">
+              <div className="p-3 rounded-2xl border border-zinc-800 bg-zinc-900/50 text-zinc-600 text-xs">
                 Nothing yet. Use 🧪 Test on a product to check login + checkout for each store.
               </div>
             ) : (
-              <div className="rounded-lg border border-zinc-800 divide-y divide-zinc-800 bg-zinc-900/50">
+              <div className="rounded-2xl border border-zinc-800 divide-y divide-zinc-800 bg-zinc-900/50">
                 {co.recent.slice(0, 12).map((a: Attempt, i: number) => {
                   const st = ATTEMPT_STYLE[a.status] || { icon: "•", cls: "text-zinc-400", label: a.status };
                   return (
@@ -391,13 +391,13 @@ export default function Dashboard() {
         {disc && (
           <section>
             <div className="flex items-center justify-between mb-3 gap-2">
-              <h2 className="text-xs sm:text-sm text-zinc-500 uppercase tracking-wider">New listings</h2>
+              <h2 className="text-xs sm:text-sm section-title uppercase tracking-wider">New listings</h2>
               <div className="flex items-center gap-2 text-[10px] text-zinc-500">
                 <span className="hidden sm:inline">{disc.enabled ? `every ${disc.interval_minutes}m · last ${ago(disc.last_run)}` : "discovery off"}</span>
                 <button
                   disabled={disc.running}
                   onClick={() => act("disc", "/api/d/discovery/run", {})}
-                  className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 disabled:opacity-40"
+                  className="px-2 py-1 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 disabled:opacity-40"
                 >{disc.running ? "Searching…" : "🔎 Search now"}</button>
               </div>
             </div>
@@ -408,11 +408,11 @@ export default function Dashboard() {
               </p>
             )}
             {disc.recent.length === 0 ? (
-              <div className="p-3 rounded-lg border border-zinc-800 bg-zinc-900/50 text-zinc-600 text-xs">
+              <div className="p-3 rounded-2xl border border-zinc-800 bg-zinc-900/50 text-zinc-600 text-xs">
                 No new listings yet. The first search on each store learns what&apos;s already listed; new Pokémon products show up here after that.
               </div>
             ) : (
-              <div className="rounded-lg border border-zinc-800 divide-y divide-zinc-800 bg-zinc-900/50">
+              <div className="rounded-2xl border border-zinc-800 divide-y divide-zinc-800 bg-zinc-900/50">
                 {disc.recent.slice(0, 15).map((l) => {
                   const k = `l:${l.retailer}:${l.id}`;
                   return (
@@ -429,7 +429,7 @@ export default function Dashboard() {
                       ) : (
                         <button
                           onClick={() => act(k, "/api/d/discovery/watch", { retailer: l.retailer, id: l.id, action: "assist" })}
-                          className="shrink-0 px-2 py-1 rounded bg-blue-700 hover:bg-blue-600 text-white text-[10px] sm:text-xs"
+                          className="shrink-0 px-2 py-1 rounded-xl bg-blue-700 hover:bg-blue-600 text-white text-[10px] sm:text-xs"
                         >+ Watch</button>
                       )}
                     </div>

@@ -103,24 +103,24 @@ export default function LiveView() {
     if (!r.error) setTimeout(() => router.push("/accounts"), 1200);
   };
 
-  if (!id) return <main className="min-h-screen bg-zinc-950 text-zinc-400 p-6 font-mono text-sm">No session id. Open Live view from the dashboard.</main>;
+  if (!id) return <main className="min-h-screen bg-zinc-950 text-zinc-400 p-6 text-sm">No session id. Open Live view from the dashboard.</main>;
 
   return (
-    <main className="min-h-screen bg-zinc-950 text-zinc-100 font-mono">
-      <header className="sticky top-0 z-20 bg-zinc-950/95 backdrop-blur border-b border-zinc-800 px-3 py-2 flex items-center justify-between gap-2">
+    <main className="min-h-screen bg-zinc-950 text-zinc-100">
+      <header className="sticky top-0 z-20 pokedex-header px-3 py-2 flex items-center justify-between gap-2">
         <div className="min-w-0">
           <p className="text-sm font-bold">📱 Live view</p>
           <p className="text-[10px] text-zinc-500 truncate">{meta.title || meta.url || "connecting…"}</p>
         </div>
-        <Link href="/" className="shrink-0 px-2 py-1 rounded text-xs bg-zinc-800 text-zinc-400">← Dashboard</Link>
+        <Link href="/" className="shrink-0 px-2 py-1 rounded-xl text-xs bg-zinc-800 text-zinc-400">← Dashboard</Link>
       </header>
 
       {closed ? (
         <div className="p-6 text-sm text-zinc-400 space-y-3">
           <p>This session is closed — it was completed, expired, or the tab was closed.</p>
           <div className="flex gap-2">
-            <Link href="/" className="inline-block px-3 py-2 rounded bg-zinc-800 text-zinc-200">Dashboard</Link>
-            <Link href="/accounts" className="inline-block px-3 py-2 rounded bg-zinc-800 text-zinc-200">Accounts</Link>
+            <Link href="/" className="inline-block px-3 py-2 rounded-xl bg-zinc-800 text-zinc-200">Dashboard</Link>
+            <Link href="/accounts" className="inline-block px-3 py-2 rounded-xl bg-zinc-800 text-zinc-200">Accounts</Link>
           </div>
         </div>
       ) : (
@@ -128,10 +128,10 @@ export default function LiveView() {
           <div className="flex items-center justify-end gap-1 text-xs">
             <span className="text-zinc-500 mr-1">Zoom</span>
             {[1, 2, 3].map((z) => (
-              <button key={z} onClick={() => setZoom(z)} className={`px-2 py-1 rounded ${zoom === z ? "bg-blue-700 text-white" : "bg-zinc-800 text-zinc-400"}`}>{z}×</button>
+              <button key={z} onClick={() => setZoom(z)} className={`px-2 py-1 rounded-xl ${zoom === z ? "bg-blue-700 text-white" : "bg-zinc-800 text-zinc-400"}`}>{z}×</button>
             ))}
           </div>
-          <div className="rounded-lg overflow-auto border border-zinc-700 bg-black select-none max-h-[70vh]">
+          <div className="rounded-2xl overflow-auto border border-zinc-700 bg-black select-none max-h-[70vh]">
           <div className="relative" style={{ width: `${zoom * 100}%` }}>
             {src ? (
               // eslint-disable-next-line @next/next/no-img-element
@@ -149,10 +149,10 @@ export default function LiveView() {
           </div>
 
           <div className="grid grid-cols-4 gap-2 text-xs">
-            <button onClick={() => send({ type: "scroll", dy: -500 })} className="py-2 rounded bg-zinc-800">▲ Up</button>
-            <button onClick={() => send({ type: "scroll", dy: 500 })} className="py-2 rounded bg-zinc-800">▼ Down</button>
-            <button onClick={() => send({ type: "back" })} className="py-2 rounded bg-zinc-800">← Back</button>
-            <button onClick={() => send({ type: "reload" })} className="py-2 rounded bg-zinc-800">⟳ Reload</button>
+            <button onClick={() => send({ type: "scroll", dy: -500 })} className="py-2 rounded-xl bg-zinc-800">▲ Up</button>
+            <button onClick={() => send({ type: "scroll", dy: 500 })} className="py-2 rounded-xl bg-zinc-800">▼ Down</button>
+            <button onClick={() => send({ type: "back" })} className="py-2 rounded-xl bg-zinc-800">← Back</button>
+            <button onClick={() => send({ type: "reload" })} className="py-2 rounded-xl bg-zinc-800">⟳ Reload</button>
           </div>
 
           <form
@@ -168,15 +168,15 @@ export default function LiveView() {
               autoCapitalize="none"
               autoCorrect="off"
               spellCheck={false}
-              className="flex-1 min-w-0 px-3 py-2 rounded bg-zinc-800 border border-zinc-700 text-sm outline-none focus:border-blue-500"
+              className="flex-1 min-w-0 px-3 py-2 rounded-xl bg-zinc-800 border border-zinc-700 text-sm outline-none focus:border-blue-500"
             />
-            <button type="button" onClick={() => setMask(!mask)} title={mask ? "Show what I type" : "Hide what I type"} className="px-2 py-2 rounded bg-zinc-800 text-sm">{mask ? "🙈" : "👁"}</button>
-            <button type="submit" className="px-3 py-2 rounded bg-blue-700 text-white text-sm">Type</button>
+            <button type="button" onClick={() => setMask(!mask)} title={mask ? "Show what I type" : "Hide what I type"} className="px-2 py-2 rounded-xl bg-zinc-800 text-sm">{mask ? "🙈" : "👁"}</button>
+            <button type="submit" className="px-3 py-2 rounded-xl bg-blue-700 text-white text-sm">Type</button>
           </form>
           <div className="grid grid-cols-3 gap-2 text-xs">
-            <button onClick={() => send({ type: "key", key: "Enter" })} className="py-2 rounded bg-zinc-800">⏎ Enter</button>
-            <button onClick={() => send({ type: "key", key: "Tab" })} className="py-2 rounded bg-zinc-800">⇥ Tab</button>
-            <button onClick={() => send({ type: "key", key: "Backspace" })} className="py-2 rounded bg-zinc-800">⌫ Delete</button>
+            <button onClick={() => send({ type: "key", key: "Enter" })} className="py-2 rounded-xl bg-zinc-800">⏎ Enter</button>
+            <button onClick={() => send({ type: "key", key: "Tab" })} className="py-2 rounded-xl bg-zinc-800">⇥ Tab</button>
+            <button onClick={() => send({ type: "key", key: "Backspace" })} className="py-2 rounded-xl bg-zinc-800">⌫ Delete</button>
           </div>
 
           {note && <p className="text-xs text-amber-300">{note}</p>}
@@ -184,7 +184,7 @@ export default function LiveView() {
           {kind === "login" ? (
             <>
               <div className="pt-2 border-t border-zinc-800">
-                <button disabled={finishing} onClick={finishLogin} className="w-full py-3 rounded-lg bg-green-700 hover:bg-green-600 text-white text-sm font-bold disabled:opacity-50">
+                <button disabled={finishing} onClick={finishLogin} className="w-full py-3 rounded-2xl bg-green-700 hover:bg-green-600 text-white text-sm font-bold disabled:opacity-50">
                   ✅ Done signing in
                 </button>
               </div>
@@ -198,8 +198,8 @@ export default function LiveView() {
           ) : (
             <>
               <div className="grid grid-cols-2 gap-2 pt-2 border-t border-zinc-800">
-                <button onClick={() => resolve("success")} className="py-3 rounded-lg bg-green-700 hover:bg-green-600 text-white text-sm font-bold">✅ I bought it</button>
-                <button onClick={() => resolve("abandoned")} className="py-3 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-sm">↩️ Didn&apos;t buy</button>
+                <button onClick={() => resolve("success")} className="py-3 rounded-2xl bg-green-700 hover:bg-green-600 text-white text-sm font-bold">✅ I bought it</button>
+                <button onClick={() => resolve("abandoned")} className="py-3 rounded-2xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-sm">↩️ Didn&apos;t buy</button>
               </div>
               <p className="text-[10px] text-zinc-600">
                 The bot also notices the order confirmation page by itself. Taps go to the bot&apos;s real browser — everything you do here happens on your account.

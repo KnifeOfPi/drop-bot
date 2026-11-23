@@ -99,8 +99,8 @@ const WEBHOOK_HINTS: Record<string, string> = {
   health: "Startup / error pings",
 };
 
-const inputCls = "w-full px-2 py-1.5 rounded bg-zinc-800 border border-zinc-700 text-sm focus:border-blue-500 outline-none";
-const card = "p-3 sm:p-4 rounded-lg border border-zinc-800 bg-zinc-900/50";
+const inputCls = "w-full px-2 py-1.5 rounded-xl bg-zinc-800 border border-zinc-700 text-sm focus:border-blue-500 outline-none";
+const card = "p-3 sm:p-4 rounded-2xl border border-zinc-800 bg-zinc-900/50";
 
 function Toggle({ on, onChange, label, hint, accent = "accent-green-500" }: { on: boolean; onChange: (v: boolean) => void; label: string; hint?: string; accent?: string }) {
   return (
@@ -124,7 +124,7 @@ function Chips({ options, value, onChange }: { options: Array<{ id: string; labe
             key={o.id}
             type="button"
             onClick={() => onChange(on ? value.filter((x) => x !== o.id) : [...value, o.id])}
-            className={`px-2 py-1 rounded text-[10px] sm:text-xs ${on ? "bg-blue-700 text-white" : "bg-zinc-800 text-zinc-500"}`}
+            className={`px-2 py-1 rounded-xl text-[10px] sm:text-xs ${on ? "bg-blue-700 text-white" : "bg-zinc-800 text-zinc-500"}`}
           >{o.label}</button>
         );
       })}
@@ -225,8 +225,8 @@ export default function Settings() {
   });
 
   return (
-    <main className="min-h-screen bg-zinc-950 text-zinc-100 font-mono">
-      <header className="sticky top-0 z-20 bg-zinc-950/95 backdrop-blur border-b border-zinc-800 px-4 py-3">
+    <main className="min-h-screen bg-zinc-950 text-zinc-100">
+      <header className="sticky top-0 z-20 pokedex-header px-4 py-3">
         <div className="flex items-center justify-between">
           <h1 className="text-lg sm:text-2xl font-bold flex items-center gap-2">
             <span className="text-xl sm:text-3xl">⚙️</span><span className="hidden sm:inline">Settings</span>
@@ -236,9 +236,9 @@ export default function Settings() {
             <button
               onClick={save}
               disabled={!dirty}
-              className={`px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg text-xs sm:text-sm font-bold ${dirty ? "bg-green-600 hover:bg-green-500 text-white" : "bg-zinc-800 text-zinc-500 cursor-not-allowed"}`}
+              className={`px-3 sm:px-4 py-1.5 sm:py-2 rounded-2xl text-xs sm:text-sm font-bold ${dirty ? "bg-green-600 hover:bg-green-500 text-white" : "bg-zinc-800 text-zinc-500 cursor-not-allowed"}`}
             >Save</button>
-            <Link href="/" className="px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg text-xs sm:text-sm bg-zinc-800 hover:bg-zinc-700 text-zinc-400">
+            <Link href="/" className="px-2 sm:px-3 py-1.5 sm:py-2 rounded-2xl text-xs sm:text-sm bg-zinc-800 hover:bg-zinc-700 text-zinc-400">
               ← <span className="hidden sm:inline">Dashboard</span>
             </Link>
           </div>
@@ -246,14 +246,14 @@ export default function Settings() {
       </header>
 
       <div className="p-4 sm:p-6">
-        {error && <div className="mb-4 p-3 bg-red-900/50 border border-red-700 rounded-lg text-red-200 text-xs sm:text-sm">⚠️ {error}</div>}
+        {error && <div className="mb-4 p-3 bg-red-900/50 border border-red-700 rounded-2xl text-red-200 text-xs sm:text-sm">⚠️ {error}</div>}
 
         <div className="flex gap-1 sm:gap-2 mb-6 overflow-x-auto -mx-1 px-1 pb-1">
           {TABS.map((t) => (
             <button
               key={t.id}
               onClick={() => setActiveTab(t.id)}
-              className={`shrink-0 px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-medium ${activeTab === t.id ? "bg-zinc-700 text-white" : "bg-zinc-900 text-zinc-500 hover:text-zinc-300"}`}
+              className={`shrink-0 px-3 sm:px-4 py-2 rounded-2xl text-xs sm:text-sm font-medium ${activeTab === t.id ? "bg-zinc-700 text-white" : "bg-zinc-900 text-zinc-500 hover:text-zinc-300"}`}
             >{t.label}</button>
           ))}
         </div>
@@ -262,10 +262,10 @@ export default function Settings() {
         {activeTab === "products" && (
           <section>
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xs sm:text-sm text-zinc-500 uppercase tracking-wider">Watchlist ({products.length})</h2>
+              <h2 className="text-xs sm:text-sm section-title uppercase tracking-wider">Watchlist ({products.length})</h2>
               <button
                 onClick={() => patch((c) => { c.products = [...products, { retailer: "walmart", url: "", label: "New product", action: "assist" }]; })}
-                className="px-3 py-1.5 rounded text-xs sm:text-sm bg-blue-600 hover:bg-blue-500 text-white"
+                className="px-3 py-1.5 rounded-xl text-xs sm:text-sm bg-blue-600 hover:bg-blue-500 text-white"
               >+ Add</button>
             </div>
             <div className="space-y-2 sm:space-y-3">
@@ -328,7 +328,7 @@ export default function Settings() {
                         </label>
                         <button
                           onClick={() => patch((c) => { c.products = products.filter((_, j) => j !== i); })}
-                          className="px-2 py-1.5 rounded text-xs bg-red-900/50 hover:bg-red-800 text-red-300"
+                          className="px-2 py-1.5 rounded-xl text-xs bg-red-900/50 hover:bg-red-800 text-red-300"
                         >✕ Remove</button>
                       </div>
                     </div>
@@ -342,7 +342,7 @@ export default function Settings() {
         {/* ── Automation ── */}
         {activeTab === "checkout" && (
           <section className="space-y-2 sm:space-y-3">
-            <div className={`p-3 sm:p-4 rounded-lg border text-xs sm:text-sm ${
+            <div className={`p-3 sm:p-4 rounded-2xl border text-xs sm:text-sm ${
               mode === "live" ? "border-red-700 bg-red-900/30 text-red-200"
               : mode === "dry" ? "border-blue-700 bg-blue-900/20 text-blue-200"
               : "border-zinc-800 bg-zinc-900/50 text-zinc-400"}`}>
@@ -377,7 +377,7 @@ export default function Settings() {
               </div>
             ))}
 
-            <div className="p-3 sm:p-4 rounded-lg border border-zinc-800 bg-zinc-900/30 text-[10px] sm:text-xs text-zinc-500 space-y-1">
+            <div className="p-3 sm:p-4 rounded-2xl border border-zinc-800 bg-zinc-900/30 text-[10px] sm:text-xs text-zinc-500 space-y-1">
               <p className="text-zinc-400 font-medium">Setup</p>
               <p>1. <Link href="/accounts" className="underline">🔐 Accounts</Link> → Sign in to each store you use (address + card saved on the account).</p>
               <p>2. Same page: save the card CVV for each store.</p>
@@ -443,10 +443,10 @@ export default function Settings() {
             />
 
             <div className="flex items-center justify-between pt-2">
-              <h2 className="text-xs sm:text-sm text-zinc-500 uppercase tracking-wider">🔥 Hot windows (faster checks)</h2>
+              <h2 className="text-xs sm:text-sm section-title uppercase tracking-wider">🔥 Hot windows (faster checks)</h2>
               <button
                 onClick={() => patch((c) => { c.monitor = { ...monitor, hot_windows: [...windows, { name: "New window", retailers: [], days: ["wed"], start: "09:00", end: "13:00", timezone: "America/New_York", interval_seconds: 10 }] }; })}
-                className="px-3 py-1.5 rounded text-xs bg-blue-600 hover:bg-blue-500 text-white"
+                className="px-3 py-1.5 rounded-xl text-xs bg-blue-600 hover:bg-blue-500 text-white"
               >+ Add</button>
             </div>
             {windows.map((w, i) => (
@@ -455,7 +455,7 @@ export default function Settings() {
                   <input value={w.name || ""} onChange={(e) => setWindow(i, { name: e.target.value })} placeholder="Name" className={inputCls} />
                   <button
                     onClick={() => patch((c) => { c.monitor = { ...monitor, hot_windows: windows.filter((_, j) => j !== i) }; })}
-                    className="px-2 rounded text-xs bg-red-900/50 hover:bg-red-800 text-red-300 shrink-0"
+                    className="px-2 rounded-xl text-xs bg-red-900/50 hover:bg-red-800 text-red-300 shrink-0"
                   >✕</button>
                 </div>
                 <div>
@@ -524,13 +524,13 @@ export default function Settings() {
         {/* ── Webhooks ── */}
         {activeTab === "webhooks" && (
           <section>
-            <h2 className="text-xs sm:text-sm text-zinc-500 uppercase tracking-wider mb-4">Discord webhooks</h2>
+            <h2 className="text-xs sm:text-sm section-title uppercase tracking-wider mb-4">Discord webhooks</h2>
             <div className="space-y-2 sm:space-y-3">
               {Object.entries(config.discord || {}).map(([key, value]) => (
                 <div key={key} className={card}>
                   <label className="text-[10px] text-zinc-500 uppercase block mb-1">{key.replace(/_/g, " ")}</label>
                   {value === ENV_MARKER ? (
-                    <div className="w-full px-2 py-1.5 rounded bg-zinc-900 border border-green-900 text-xs text-green-400">🔒 Set via daemon .env (DISCORD_{key.toUpperCase()})</div>
+                    <div className="w-full px-2 py-1.5 rounded-xl bg-zinc-900 border border-green-900 text-xs text-green-400">🔒 Set via daemon .env (DISCORD_{key.toUpperCase()})</div>
                   ) : (
                     <input
                       type="text" value={value || ""}

@@ -105,29 +105,29 @@ export default function Accounts() {
   const openSessions = status?.login_sessions || [];
 
   return (
-    <main className="min-h-screen bg-zinc-950 text-zinc-100 font-mono">
-      <header className="sticky top-0 z-20 bg-zinc-950/95 backdrop-blur border-b border-zinc-800 px-4 py-3 flex items-center justify-between">
+    <main className="min-h-screen bg-zinc-950 text-zinc-100">
+      <header className="sticky top-0 z-20 pokedex-header px-4 py-3 flex items-center justify-between">
         <h1 className="text-lg sm:text-2xl font-bold flex items-center gap-2">🔐 <span>Store accounts</span></h1>
-        <Link href="/" className="px-2 sm:px-3 py-1.5 rounded-lg text-xs sm:text-sm bg-zinc-800 hover:bg-zinc-700 text-zinc-400">← <span className="hidden sm:inline">Dashboard</span></Link>
+        <Link href="/" className="px-2 sm:px-3 py-1.5 rounded-2xl text-xs sm:text-sm bg-zinc-800 hover:bg-zinc-700 text-zinc-400">← <span className="hidden sm:inline">Dashboard</span></Link>
       </header>
 
       <div className="p-4 sm:p-6 space-y-4 max-w-3xl">
-        {error && <div className="p-3 bg-red-900/50 border border-red-700 rounded-lg text-red-200 text-xs sm:text-sm">⚠️ Bot unreachable: {error}</div>}
+        {error && <div className="p-3 bg-red-900/50 border border-red-700 rounded-2xl text-red-200 text-xs sm:text-sm">⚠️ Bot unreachable: {error}</div>}
         {status?.pause?.paused && (
-          <div className="p-3 rounded-lg border border-zinc-600 bg-zinc-900 text-[11px] sm:text-xs text-zinc-300">
+          <div className="p-3 rounded-2xl border border-zinc-600 bg-zinc-900 text-[11px] sm:text-xs text-zinc-300">
             ⏸ The bot is paused. You can still <b>sign in</b>, <b>check</b> accounts and <b>test the proxy</b> here — each opens that
             store&apos;s browser just for that and closes it again. Watching and checkout stay off until you tap Resume on the dashboard.
           </div>
         )}
 
-        <div className="p-3 rounded-lg border border-zinc-800 bg-zinc-900/40 text-[11px] sm:text-xs text-zinc-400 space-y-1">
+        <div className="p-3 rounded-2xl border border-zinc-800 bg-zinc-900/40 text-[11px] sm:text-xs text-zinc-400 space-y-1">
           <p><b className="text-zinc-200">Sign in</b> opens the store&apos;s login page in the bot&apos;s browser. Type your email, password and any 2FA code in Live view — the login is saved on the bot&apos;s server and reused for queues and checkout.</p>
           <p>Make sure each account has a <b className="text-zinc-200">default shipping address and saved card</b>. Costco and Sam&apos;s need an active membership.</p>
           <p>Use <b className="text-zinc-200">password</b> sign-in — passkeys can&apos;t reach your phone from the server&apos;s browser.</p>
         </div>
 
         {/* ── Proxy ── */}
-        <div className="p-3 sm:p-4 rounded-lg border border-zinc-800 bg-zinc-900/50 space-y-3">
+        <div className="p-3 sm:p-4 rounded-2xl border border-zinc-800 bg-zinc-900/50 space-y-3">
           <div className="flex items-start justify-between gap-2">
             <div>
               <p className="font-semibold text-sm sm:text-base">🌐 Proxy</p>
@@ -137,7 +137,7 @@ export default function Accounts() {
                   : <span className="text-zinc-400">Not set — stores see your server&apos;s own IP</span>}
               </p>
             </div>
-            <button disabled={proxyBusy} onClick={testProxy} className="shrink-0 px-3 py-2 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs disabled:opacity-40">Test</button>
+            <button disabled={proxyBusy} onClick={testProxy} className="shrink-0 px-3 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs disabled:opacity-40">Test</button>
           </div>
           {proxy?.source !== "env" && (
             <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); if (proxyInput) saveProxy(proxyInput); }}>
@@ -147,9 +147,9 @@ export default function Accounts() {
                 value={proxyInput}
                 onChange={(e) => setProxyInput(e.target.value)}
                 placeholder={proxy?.set ? "Paste a new proxy to replace it" : "host:port:user:pass  or  http://user:pass@host:port"}
-                className="flex-1 min-w-0 px-2 py-1.5 rounded bg-zinc-800 border border-zinc-700 text-xs outline-none focus:border-blue-500"
+                className="flex-1 min-w-0 px-2 py-1.5 rounded-xl bg-zinc-800 border border-zinc-700 text-xs outline-none focus:border-blue-500"
               />
-              <button type="submit" disabled={!proxyInput || proxyBusy} className="px-3 py-1.5 rounded bg-blue-700 hover:bg-blue-600 text-white text-xs disabled:opacity-40">Save</button>
+              <button type="submit" disabled={!proxyInput || proxyBusy} className="px-3 py-1.5 rounded-xl bg-blue-700 hover:bg-blue-600 text-white text-xs disabled:opacity-40">Save</button>
               {proxy?.set && <button type="button" disabled={proxyBusy} onClick={() => saveProxy("")} className="text-[10px] text-zinc-500 underline">remove</button>}
             </form>
           )}
@@ -166,7 +166,7 @@ export default function Accounts() {
                         const next = on ? proxyStores.filter((x) => x !== r.id) : [...proxyStores, r.id];
                         setProxyStores(next.length === RETAILERS.length ? null : next);
                       }}
-                      className={`px-2 py-1 rounded text-[10px] sm:text-xs ${on ? "bg-blue-700 text-white" : "bg-zinc-800 text-zinc-500"}`}
+                      className={`px-2 py-1 rounded-xl text-[10px] sm:text-xs ${on ? "bg-blue-700 text-white" : "bg-zinc-800 text-zinc-500"}`}
                     >{r.emoji} {r.name}</button>
                   );
                 })}
@@ -193,9 +193,9 @@ export default function Accounts() {
                   value={limitInput}
                   onChange={(e) => setLimitInput(e.target.value.replace(/\D/g, ""))}
                   placeholder={bw.limit_mb ? String(bw.limit_mb) : "off"}
-                  className="w-20 px-2 py-1 rounded bg-zinc-800 border border-zinc-700 text-xs outline-none focus:border-blue-500"
+                  className="w-20 px-2 py-1 rounded-xl bg-zinc-800 border border-zinc-700 text-xs outline-none focus:border-blue-500"
                 />
-                <button type="submit" disabled={!limitInput} className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-xs text-zinc-300 disabled:opacity-40">Set</button>
+                <button type="submit" disabled={!limitInput} className="px-2 py-1 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-xs text-zinc-300 disabled:opacity-40">Set</button>
                 <span className="text-[10px] text-zinc-600">pauses the bot when reached · 0 = off</span>
               </form>
               <table className="w-full text-[10px] sm:text-xs">
@@ -236,7 +236,7 @@ export default function Accounts() {
             : a?.logged_in === false ? { text: "❌ Signed out", cls: "text-red-300" }
             : { text: "❔ Not checked", cls: "text-zinc-400" };
           return (
-            <div key={r.id} className={`p-3 sm:p-4 rounded-lg border bg-zinc-900/50 ${watched.has(r.id) && a?.logged_in !== true ? "border-amber-700" : "border-zinc-800"}`}>
+            <div key={r.id} className={`p-3 sm:p-4 rounded-2xl border bg-zinc-900/50 ${watched.has(r.id) && a?.logged_in !== true ? "border-amber-700" : "border-zinc-800"}`}>
               <div className="flex items-start justify-between gap-2">
                 <div>
                   <p className="font-semibold text-sm sm:text-base">{r.emoji} {r.name}</p>
@@ -249,13 +249,13 @@ export default function Accounts() {
                 </div>
                 <div className="flex flex-col sm:flex-row gap-1.5 shrink-0">
                   {session ? (
-                    <Link href={`/live?id=${encodeURIComponent(session.id)}`} className="px-3 py-2 rounded bg-yellow-500 text-black text-xs font-bold text-center">📱 Continue sign-in</Link>
+                    <Link href={`/live?id=${encodeURIComponent(session.id)}`} className="px-3 py-2 rounded-xl bg-yellow-500 text-black text-xs font-bold text-center">📱 Continue sign-in</Link>
                   ) : (
-                    <button disabled={busy === r.id} onClick={() => signIn(r.id)} className="px-3 py-2 rounded bg-blue-700 hover:bg-blue-600 text-white text-xs font-bold disabled:opacity-40">
+                    <button disabled={busy === r.id} onClick={() => signIn(r.id)} className="px-3 py-2 rounded-xl bg-blue-700 hover:bg-blue-600 text-white text-xs font-bold disabled:opacity-40">
                       {a?.logged_in ? "Sign in again" : "Sign in"}
                     </button>
                   )}
-                  <button disabled={busy === r.id} onClick={() => check(r.id)} className="px-3 py-2 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs disabled:opacity-40">Check</button>
+                  <button disabled={busy === r.id} onClick={() => check(r.id)} className="px-3 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs disabled:opacity-40">Check</button>
                 </div>
               </div>
 
@@ -273,9 +273,9 @@ export default function Accounts() {
                   onChange={(e) => setCvv((c) => ({ ...c, [r.id]: e.target.value.replace(/\D/g, "") }))}
                   placeholder={a?.cvv_set ? "•••  saved" : "3–4 digits"}
                   disabled={a?.cvv_source === "env"}
-                  className="w-28 px-2 py-1.5 rounded bg-zinc-800 border border-zinc-700 text-sm outline-none focus:border-blue-500 disabled:opacity-50"
+                  className="w-28 px-2 py-1.5 rounded-xl bg-zinc-800 border border-zinc-700 text-sm outline-none focus:border-blue-500 disabled:opacity-50"
                 />
-                <button type="submit" disabled={!cvv[r.id] || a?.cvv_source === "env"} className="px-2 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-xs text-zinc-300 disabled:opacity-40">Save</button>
+                <button type="submit" disabled={!cvv[r.id] || a?.cvv_source === "env"} className="px-2 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-xs text-zinc-300 disabled:opacity-40">Save</button>
                 {a?.cvv_source === "dashboard" && (
                   <button type="button" onClick={() => saveCvv(r.id, "")} className="text-[10px] text-zinc-500 underline">remove</button>
                 )}
