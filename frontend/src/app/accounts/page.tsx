@@ -107,7 +107,7 @@ export default function Accounts() {
   return (
     <main className="min-h-screen bg-zinc-950 text-zinc-100">
       <header className="sticky top-0 z-20 pokedex-header px-4 py-3 flex items-center justify-between">
-        <h1 className="text-lg sm:text-2xl font-bold flex items-center gap-2">🔐 <span>Store accounts</span></h1>
+        <h1 className="flex items-center gap-2.5 font-semibold tracking-tight"><span className="pokeball text-xl" aria-hidden />Store accounts</h1>
         <Link href="/" className="px-2 sm:px-3 py-1.5 rounded-2xl text-xs sm:text-sm bg-zinc-800 hover:bg-zinc-700 text-zinc-400">← <span className="hidden sm:inline">Dashboard</span></Link>
       </header>
 

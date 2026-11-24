@@ -228,8 +228,8 @@ export default function Settings() {
     <main className="min-h-screen bg-zinc-950 text-zinc-100">
       <header className="sticky top-0 z-20 pokedex-header px-4 py-3">
         <div className="flex items-center justify-between">
-          <h1 className="text-lg sm:text-2xl font-bold flex items-center gap-2">
-            <span className="text-xl sm:text-3xl">⚙️</span><span className="hidden sm:inline">Settings</span>
+          <h1 className="flex items-center gap-2.5 font-semibold tracking-tight">
+            <span className="pokeball text-xl" aria-hidden />Settings
           </h1>
           <div className="flex items-center gap-2 sm:gap-3">
             {saved && <span className="text-green-400 text-[10px] sm:text-sm">✅ Saved</span>}

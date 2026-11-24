@@ -1,12 +1,11 @@
 import type { Metadata } from "next";
-import { Nunito } from "next/font/google";
+import { Geist } from "next/font/google";
 import "./globals.css";
 
-// Rounded, friendly typeface (falls back to Apple's rounded system font).
-const nunito = Nunito({
-  variable: "--font-nunito",
+// Clean modern typeface.
+const geist = Geist({
+  variable: "--font-geist",
   subsets: ["latin"],
-  weight: ["400", "600", "700", "800", "900"],
 });
 
 export const metadata: Metadata = {
@@ -18,7 +17,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
-      className={`${nunito.variable} h-full antialiased`}
+      className={`${geist.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">{children}</body>
     </html>
