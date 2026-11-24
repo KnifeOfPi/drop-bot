@@ -12,6 +12,7 @@ import { markLogin } from './accounts.js';
 import { loadConfigFresh, getCheckoutSettings } from './config.js';
 
 const loginSessions = new Map(); // id -> { id, retailer, page, started, expires, timer }
+const heldMouse = new Map();      // page -> auto-release timer while the mouse is held down
 const LOGIN_MINUTES = 15;
 
 function sessionFor(id) {
@@ -97,6 +98,8 @@ export async function liveFrame(id) {
 /**
  * Input actions:
  *   { type: 'click', x, y }   — x/y as fractions 0..1 of the frame (resolution independent)
+ *   { type: 'down', x, y } / { type: 'up' } — press and hold (e.g. a "Press & hold" check):
+ *                               the mouse stays down until 'up' (auto-released after 30 s)
  *   { type: 'type', text }    — types into the focused field
  *   { type: 'key', key }      — e.g. Enter, Tab, Backspace
  *   { type: 'scroll', dy }    — CSS px, positive = down
@@ -112,6 +115,22 @@ export async function liveInput(id, a) {
       const x = Math.max(0, Math.min(1, Number(a.x))) * w;
       const y = Math.max(0, Math.min(1, Number(a.y))) * h;
       await page.mouse.click(x, y);
+      break;
+    }
+    case 'down': {
+      const x = Math.max(0, Math.min(1, Number(a.x))) * w;
+      const y = Math.max(0, Math.min(1, Number(a.y))) * h;
+      if (heldMouse.has(page)) { clearTimeout(heldMouse.get(page)); await page.mouse.up().catch(() => {}); }
+      await page.mouse.move(x, y);
+      await page.mouse.down();
+      // Never leave the mouse stuck down if the release never arrives.
+      heldMouse.set(page, setTimeout(() => { heldMouse.delete(page); page.mouse.up().catch(() => {}); }, 30_000));
+      return { ok: true }; // no settle delay — keep the hold timing accurate
+    }
+    case 'up': {
+      clearTimeout(heldMouse.get(page));
+      heldMouse.delete(page);
+      await page.mouse.up();
       break;
     }
     case 'type':

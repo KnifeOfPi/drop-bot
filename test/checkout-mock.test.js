@@ -160,6 +160,10 @@ function mock(url) {
         <script>d.onclick=()=>{dlg.style.display='block'};ok.onclick=async()=>{await fetch('/drawing/submit');dlg.style.display='none';msg.textContent="You're entered!"}</script>`);
     }
     if (p === '/drawing/submit') { scenario.walmartEntered = true; return html('ok'); }
+    if (p === '/hold-check') return html(`<h1>Quick verification</h1>
+      <button id="h" style="margin:40px;padding:20px 40px">Press &amp; hold</button><p id="msg">waiting</p>
+      <script>let t=0;h.onmousedown=()=>{t=Date.now();msg.textContent='holding'};
+      document.onmouseup=()=>{if(t){msg.textContent='held '+((Date.now()-t)/1000).toFixed(1);t=0}}</script>`);
     if (p === '/account/login') return html(`<h1>Sign in</h1>
       <input id="email" type="email" placeholder="Email"> <input id="pw" type="password" placeholder="Password">
       <button id="go" onclick="fetch('/account/login/submit?e='+encodeURIComponent(email.value)+'&p='+encodeURIComponent(pw.value)).then(()=>location.href='/account')">Sign in</button>`);
@@ -794,6 +798,26 @@ await test('While paused you can still sign in and check accounts; the store bro
     expect(openSessions().length === 0, `browsers left open after check: ${openSessions()}`);
   } finally {
     await setPaused(false);
+  }
+});
+
+await test('Live view press & hold: mouse stays down until released (for "Press & hold" checks)', async () => {
+  const id = await openLoginSession('walmart');
+  try {
+    expect((await liveInput(id, { type: 'goto', url: '/hold-check' })).ok, 'goto');
+    const sess = (await (await import('../src/session.js')).getSession('walmart')).context.pages().find(p => p.url().includes('/hold-check'));
+    const frame = await liveFrame(id);
+    const b = await sess.locator('#h').boundingBox();
+    const at = { x: (b.x + b.width / 2) / frame.width, y: (b.y + b.height / 2) / frame.height };
+    expect((await liveInput(id, { type: 'down', ...at })).ok, 'down');
+    await sleep(1600);
+    expect(await sess.locator('#msg').textContent() === 'holding', 'should still be holding');
+    expect((await liveInput(id, { type: 'up' })).ok, 'up');
+    const msg = await sess.locator('#msg').textContent();
+    const held = parseFloat(msg.replace('held ', ''));
+    expect(held >= 1.5 && held < 3, `held for ${msg}`);
+  } finally {
+    await closeLoginSession(id, { check: false });
   }
 });
 

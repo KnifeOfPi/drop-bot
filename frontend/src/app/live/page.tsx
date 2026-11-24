@@ -19,6 +19,12 @@ export default function LiveView() {
   const [note, setNote] = useState<string | null>(null);
   const [tap, setTap] = useState<{ x: number; y: number } | null>(null);
   const [zoom, setZoom] = useState(1);
+  // Hold mode: pressing the picture holds the bot's mouse down until you let go
+  // (for "Press & hold" checks). A quick tap in normal mode is a click.
+  const [holdMode, setHoldMode] = useState(false);
+  const [heldSince, setHeldSince] = useState<number | null>(null);
+  const [holdNow, setHoldNow] = useState(0);
+  const downSent = useRef<Promise<unknown> | null>(null);
   const [kind, setKind] = useState<"handoff" | "login" | null>(null);
   const [mask, setMask] = useState(false);
   const [finishing, setFinishing] = useState(false);
@@ -85,6 +91,39 @@ export default function LiveView() {
     send({ type: "click", x, y });
   };
 
+  const pointAt = (clientX: number, clientY: number) => {
+    const rect = imgRef.current!.getBoundingClientRect();
+    return { x: (clientX - rect.left) / rect.width, y: (clientY - rect.top) / rect.height };
+  };
+
+  const holdStart = (e: React.PointerEvent<HTMLImageElement>) => {
+    if (!holdMode || !imgRef.current || !id) return;
+    e.preventDefault();
+    imgRef.current.setPointerCapture?.(e.pointerId);
+    const { x, y } = pointAt(e.clientX, e.clientY);
+    setTap({ x, y });
+    setHeldSince(Date.now());
+    downSent.current = postJson("/api/d/live/input", { id, type: "down", x, y });
+  };
+
+  const holdEnd = async () => {
+    if (!downSent.current || !id) return;
+    const pending = downSent.current;
+    downSent.current = null;
+    setHeldSince(null);
+    setTap(null);
+    await pending; // the press must land before the release
+    const r = await postJson("/api/d/live/input", { id, type: "up" });
+    if (r.error) setNote(r.error);
+    setTimeout(refresh, 150);
+  };
+
+  useEffect(() => {
+    if (!heldSince) return;
+    const t = setInterval(() => setHoldNow(Date.now()), 100);
+    return () => clearInterval(t);
+  }, [heldSince]);
+
   const resolve = async (outcome: "success" | "abandoned") => {
     if (!id) return;
     if (outcome === "abandoned" && !window.confirm("Close this session without buying?")) return;
@@ -126,6 +165,11 @@ export default function LiveView() {
       ) : (
         <div className="p-2 sm:p-4 space-y-3 max-w-4xl mx-auto">
           <div className="flex items-center justify-end gap-1 text-xs">
+            <button
+              onClick={() => setHoldMode(!holdMode)}
+              className={`mr-auto px-3 py-1 rounded-xl font-bold ${holdMode ? "bg-yellow-500 text-zinc-950" : "bg-zinc-800 text-zinc-300"}`}
+              title="For 'Press & hold' checks: press the picture and keep holding"
+            >✋ Hold {holdMode ? "on" : "off"}</button>
             <span className="text-zinc-500 mr-1">Zoom</span>
             {[1, 2, 3].map((z) => (
               <button key={z} onClick={() => setZoom(z)} className={`px-2 py-1 rounded-xl ${zoom === z ? "bg-blue-700 text-white" : "bg-zinc-800 text-zinc-400"}`}>{z}×</button>
@@ -135,7 +179,19 @@ export default function LiveView() {
           <div className="relative" style={{ width: `${zoom * 100}%` }}>
             {src ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img ref={imgRef} src={src} alt="Bot browser" onClick={onTap} className="w-full h-auto cursor-pointer" draggable={false} />
+              <img
+                ref={imgRef}
+                src={src}
+                alt="Bot browser"
+                onClick={holdMode ? undefined : onTap}
+                onPointerDown={holdStart}
+                onPointerUp={holdEnd}
+                onPointerCancel={holdEnd}
+                onContextMenu={(e) => e.preventDefault()}
+                className="w-full h-auto cursor-pointer"
+                style={holdMode ? { touchAction: "none", WebkitTouchCallout: "none", userSelect: "none" } : undefined}
+                draggable={false}
+              />
             ) : (
               <div className="aspect-video flex items-center justify-center text-zinc-600 text-xs">Loading…</div>
             )}
@@ -147,6 +203,14 @@ export default function LiveView() {
             )}
           </div>
           </div>
+
+          {holdMode && (
+            <p className={`text-center text-xs font-bold ${heldSince ? "text-yellow-300" : "text-zinc-400"}`}>
+              {heldSince
+                ? `Holding… ${(Math.max(0, holdNow - heldSince) / 1000).toFixed(1)} s — let go when the check is done`
+                : "Hold mode: press on the button in the picture and keep holding until it completes."}
+            </p>
+          )}
 
           <div className="grid grid-cols-4 gap-2 text-xs">
             <button onClick={() => send({ type: "scroll", dy: -500 })} className="py-2 rounded-xl bg-zinc-800">▲ Up</button>
