@@ -10,6 +10,7 @@ export async function daemonFetch(path: string, init: RequestInit = {}, timeoutM
   const headers = new Headers(init.headers);
   headers.set("Accept", "application/json");
   if (DAEMON_TOKEN) headers.set("Authorization", `Bearer ${DAEMON_TOKEN}`);
+  headers.set("X-Dropbot-Client", "dashboard");
   try {
     return await fetch(`${DAEMON_URL}${path}`, { ...init, headers, signal: controller.signal, cache: "no-store" });
   } finally {

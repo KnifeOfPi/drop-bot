@@ -12,15 +12,27 @@ export function isPaused(cfg = loadConfigFresh()) {
   return !!cfg?.paused;
 }
 
+// Fields only Pause / Resume (and the data limit) may change — never a settings save.
+export const PAUSE_KEYS = ['paused', 'paused_at', 'paused_reason', 'data_limit_hit_day', 'pause_history'];
+
 export function pauseStatus(cfg = loadConfigFresh()) {
-  return { paused: !!cfg?.paused, since: cfg?.paused_at ?? null, reason: cfg?.paused ? (cfg?.paused_reason || 'manual') : null };
+  return {
+    paused: !!cfg?.paused,
+    since: cfg?.paused_at ?? null,
+    reason: cfg?.paused ? (cfg?.paused_reason || 'manual') : null,
+    history: (cfg?.pause_history || []).slice(-5).reverse(), // newest first: { at, paused, by, reason }
+  };
 }
 
 export const today = () => new Date().toLocaleDateString('en-CA');
 
-/** reason: 'manual' (dashboard) or 'data_limit' (automatic — resumes the next day). */
-export async function setPaused(paused, reason = 'manual') {
+/**
+ * reason: 'manual' or 'data_limit' (automatic — resumes the next day).
+ * by: who did it — 'dashboard', 'api' (e.g. curl from the server), 'data limit'.
+ */
+export async function setPaused(paused, reason = 'manual', by = 'api') {
   const cfg = yaml.load(readFileSync(CONFIG_PATH, 'utf8')) || {};
+  cfg.pause_history = [...(cfg.pause_history || []), { at: Date.now(), paused: !!paused, by, reason }].slice(-20);
   cfg.paused = !!paused;
   if (paused) {
     cfg.paused_at = Date.now();
@@ -33,6 +45,6 @@ export async function setPaused(paused, reason = 'manual') {
   writeFileSync(CONFIG_PATH, yaml.dump(cfg, { lineWidth: 120, noRefs: true }));
   clearConfigCache();
   if (paused) await closeAll(); // closes every store browser (and any open hand-off / sign-in tab)
-  console.log(`[pause] bot ${paused ? 'PAUSED — all store browsers closed' : 'resumed'}`);
+  console.log(`[pause] bot ${paused ? 'PAUSED — all store browsers closed' : 'resumed'} (by ${by}, ${reason})`);
   return pauseStatus(cfg);
 }

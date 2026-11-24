@@ -27,7 +27,7 @@ import { liveFrame, liveInput, openLoginSession, closeLoginSession, checkLogin, 
 import { accountsStatus, setCvv, setProxyUrl, getProxyUrl, proxyStatus, proxiedStoreSet } from './accounts.js';
 import { publicIp } from './checkout/browser.js';
 import { bandwidthStatus } from './bandwidth.js';
-import { setPaused, pauseStatus, isPaused } from './pause.js';
+import { setPaused, pauseStatus, isPaused, PAUSE_KEYS } from './pause.js';
 import { RETAILER_ADAPTERS } from './retailers/index.js';
 import { getAdapter } from './retailers/index.js';
 import { openSessions, closeAll, closeSession } from './session.js';
@@ -135,7 +135,8 @@ async function route(req, res, url) {
   // ── Pause switch: { paused: true | false } ──
   if (path === '/pause' && method === 'POST') {
     const { paused } = await readJson(req);
-    const st = await setPaused(!!paused);
+    const by = req.headers['x-dropbot-client'] === 'dashboard' ? 'dashboard' : 'api';
+    const st = await setPaused(!!paused, 'manual', by);
     return send(res, 200, { ok: true, ...st, message: st.paused
       ? 'Paused — every store browser is closed. No store traffic or proxy data until you resume.'
       : 'Resumed — the stores reopen on the next pass (a few seconds).' });
@@ -160,6 +161,9 @@ async function route(req, res, url) {
 
   if (path === '/config' && method === 'PUT') {
     const updates = await readJson(req);
+    // Pause state only changes through /pause — a Settings save (which sends the
+    // whole config it loaded earlier) must never pause or resume the bot.
+    for (const k of PAUSE_KEYS) delete updates[k];
     const current = yaml.load(readFileSync(CONFIG_PATH, 'utf8')) || {};
     // Masked ("https://...") hooks keep their real value; env-supplied hooks are never written here.
     if (updates.discord) {

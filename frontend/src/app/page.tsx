@@ -172,6 +172,11 @@ export default function Dashboard() {
                   ? ` Resumes automatically at midnight${status?.bandwidth?.limit_mb ? ` (limit ${status.bandwidth.limit_mb} MB/day)` : ""}. Resume now to continue anyway today.`
                   : status?.pause?.since ? ` Paused ${ago(status.pause.since)}.` : ""}
               </p>
+              {status?.pause?.history?.[0]?.paused && (
+                <p className="text-[10px] text-zinc-500 mt-1">
+                  Paused by {status.pause.history[0].by} · {new Date(status.pause.history[0].at).toLocaleString()}
+                </p>
+              )}
               {msg.pause && <p className="text-[10px] text-blue-300 mt-1">{msg.pause}</p>}
             </div>
             <button onClick={togglePause} disabled={pausing} className="shrink-0 px-3 py-2 rounded-2xl bg-green-700 hover:bg-green-600 text-white text-xs sm:text-sm font-bold disabled:opacity-50">
@@ -180,6 +185,11 @@ export default function Dashboard() {
           </div>
         )}
         {!paused && msg.pause && <p className="text-[10px] text-blue-300">{msg.pause}</p>}
+        {!paused && status?.pause?.history?.[0] && !status.pause.history[0].paused && (
+          <p className="text-[10px] text-zinc-500">
+            ▶ Running since {new Date(status.pause.history[0].at).toLocaleString()} · resumed by {status.pause.history[0].by}
+          </p>
+        )}
 
         {/* ── Sign-in needed ── */}
         {!paused && needsLogin.length > 0 && (

@@ -187,7 +187,7 @@ export async function dataGuard() {
   const d = today();
   if (cfg.paused) {
     if (cfg.paused_reason === 'data_limit' && cfg.data_limit_hit_day !== d) {
-      await setPaused(false);
+      await setPaused(false, 'data_limit', 'data limit (new day)');
       sendHealthAlert("New day — resumed after yesterday's proxy data limit.").catch(() => {});
     }
     return;
@@ -196,7 +196,7 @@ export async function dataGuard() {
   if (!limitMb || cfg.data_limit_hit_day === d) return;
   const used = bytesToday(proxiedStoreSet(cfg));
   if (used >= limitMb * 1024 * 1024) {
-    await setPaused(true, 'data_limit');
+    await setPaused(true, 'data_limit', 'data limit');
     sendHealthAlert(`⏸ Paused: today's proxy data reached ${(used / 1048576).toFixed(0)} MB (limit ${limitMb} MB). It resumes automatically at midnight — or raise the limit / tap Resume on the dashboard.`, true).catch(() => {});
   }
 }
