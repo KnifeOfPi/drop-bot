@@ -134,9 +134,24 @@ async function route(req, res, url) {
 
   // ── Pause switch: { paused: true | false } ──
   if (path === '/pause' && method === 'POST') {
-    const { paused } = await readJson(req);
-    const by = req.headers['x-dropbot-client'] === 'dashboard' ? 'dashboard' : 'api';
-    const st = await setPaused(!!paused, 'manual', by);
+    const body = await readJson(req);
+    const { paused } = body;
+    const fromDashboard = req.headers['x-dropbot-client'] === 'dashboard';
+    const ua = String(req.headers['user-agent'] || 'unknown').slice(0, 60);
+    // A missing or non-boolean value used to count as "resume" (an empty POST /pause
+    // un-paused the bot). Now it must be exactly true or false.
+    if (typeof paused !== 'boolean') {
+      console.log(`[pause] rejected POST /pause without a true/false "paused" (from ${ua})`);
+      return send(res, 400, { error: 'send {"paused": true} or {"paused": false}' });
+    }
+    // Resuming from anything but the dashboard needs an explicit confirmation, so a
+    // script or health check can never un-pause the bot by accident.
+    if (!paused && !fromDashboard && body.confirm !== 'resume') {
+      console.log(`[pause] refused resume without confirm (from ${ua})`);
+      return send(res, 400, { error: 'to resume from the API send {"paused": false, "confirm": "resume"}' });
+    }
+    const by = fromDashboard ? 'dashboard' : `api (${ua})`;
+    const st = await setPaused(paused, 'manual', by);
     return send(res, 200, { ok: true, ...st, message: st.paused
       ? 'Paused — every store browser is closed. No store traffic or proxy data until you resume.'
       : 'Resumed — the stores reopen on the next pass (a few seconds).' });
@@ -383,7 +398,8 @@ async function main() {
     console.log('[daemon] DROPBOT_NO_LOOPS set — API only');
     return;
   }
-  await sendHealthAlert('Drop Bot started — monitoring active ✅');
+  console.log(`[daemon] starting ${isPaused() ? 'PAUSED (stays paused until you tap Resume)' : 'running'}`);
+  await sendHealthAlert(isPaused() ? 'Drop Bot started — paused ⏸ (tap Resume on the dashboard to start watching)' : 'Drop Bot started — monitoring active ✅');
   startMonitors();
   startDiscovery();
 }
