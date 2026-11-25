@@ -132,6 +132,20 @@ function Chips({ options, value, onChange }: { options: Array<{ id: string; labe
   );
 }
 
+// Target wants a TCIN and Best Buy a SKU — accept a pasted product link and pull the ID out of it.
+function productIdFrom(retailer: string, raw: string): string {
+  const v = raw.trim();
+  if (retailer === "target") {
+    const m = v.match(/\/A-(\d{6,10})/i) || v.match(/[?&](?:tcin|preselect)=(\d{6,10})/i);
+    if (m) return m[1];
+  }
+  if (retailer === "best-buy") {
+    const m = v.match(/[?&]skuId=(\d{6,8})/i) || v.match(/\/(\d{6,8})\.p\b/i) || v.match(/\/sku\/(\d{6,8})/i);
+    if (m) return m[1];
+  }
+  return v;
+}
+
 export default function Settings() {
   const [config, setConfig] = useState<Config | null>(null);
   const [dirty, setDirty] = useState(false);
@@ -291,8 +305,8 @@ export default function Settings() {
                         <input
                           type="text"
                           value={(p[field] as string) || ""}
-                          placeholder={field === "url" ? "https://…" : ""}
-                          onChange={(e) => updateProduct(i, { [field]: e.target.value.trim() } as Partial<Product>)}
+                          placeholder={field === "url" ? "Paste the product link" : "Paste the product link or the " + (info?.idLabel || "ID")}
+                          onChange={(e) => updateProduct(i, { [field]: productIdFrom(p.retailer, e.target.value) } as Partial<Product>)}
                           className={`${inputCls} text-xs`}
                         />
                       </div>
