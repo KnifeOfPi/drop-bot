@@ -41,6 +41,7 @@ interface CheckoutSettings {
 }
 
 interface Config {
+  stores?: string[];
   products?: Product[];
   discord?: Record<string, string>;
   monitor?: {
@@ -205,6 +206,14 @@ export default function Settings() {
   if (!config) return null;
 
   const products = config.products || [];
+  // Stores switched on (no list yet = all on). Products of stores that are off stay saved but hidden.
+  const storesOn = config.stores ?? RETAILERS.map((r) => r.id);
+  const toggleStore = (id: string, on: boolean) => patch((c) => {
+    const next = RETAILERS.map((r) => r.id).filter((r) => (r === id ? on : storesOn.includes(r)));
+    c.stores = next;
+  });
+  const visibleStores = RETAILERS.filter((r) => storesOn.includes(r.id));
+  const hiddenCount = products.filter((p) => !storesOn.includes(p.retailer)).length;
   const checkout = { ...CHECKOUT_DEFAULTS, ...(config.checkout || {}) };
   const setCheckout = (p: Partial<CheckoutSettings>) => patch((c) => { c.checkout = { ...checkout, ...p }; });
   const monitor = {
@@ -275,15 +284,49 @@ export default function Settings() {
         {/* ── Products ── */}
         {activeTab === "products" && (
           <section>
+            <div className={`${card} mb-4`}>
+              <h2 className="text-xs sm:text-sm section-title uppercase tracking-wider mb-1">Stores</h2>
+              <p className="text-[11px] text-zinc-500 mb-3">A store that&apos;s off isn&apos;t checked, searched or opened, and is hidden from the dashboard. Its products stay saved for when you turn it back on.</p>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                {RETAILERS.map((r) => {
+                  const on = storesOn.includes(r.id);
+                  return (
+                    <button
+                      key={r.id}
+                      type="button"
+                      role="switch"
+                      aria-checked={on}
+                      onClick={() => toggleStore(r.id, !on)}
+                      className={`flex items-center justify-between gap-2 rounded-xl px-3 py-2 text-sm ring-1 ring-inset transition-colors ${on ? "bg-emerald-500/10 ring-emerald-500/30 text-zinc-100" : "bg-zinc-900 ring-zinc-800 text-zinc-500"}`}
+                    >
+                      <span className="truncate">{r.name}</span>
+                      <span className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${on ? "bg-emerald-500" : "bg-zinc-700"}`}>
+                        <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white transition-all ${on ? "left-[18px]" : "left-0.5"}`} />
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-[11px] text-zinc-500 mt-2">Tap Save to apply.</p>
+            </div>
+
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xs sm:text-sm section-title uppercase tracking-wider">Watchlist ({products.length})</h2>
+              <h2 className="text-xs sm:text-sm section-title uppercase tracking-wider">Watchlist ({products.length - hiddenCount})</h2>
               <button
-                onClick={() => patch((c) => { c.products = [...products, { retailer: "walmart", url: "", label: "New product", action: "assist" }]; })}
+                disabled={!visibleStores.length}
+                onClick={() => patch((c) => {
+                  const r = visibleStores[0]?.id || "walmart";
+                  c.products = [...products, { retailer: r, label: "New product", action: "assist" }];
+                })}
                 className="px-3 py-1.5 rounded-xl text-xs sm:text-sm bg-blue-600 hover:bg-blue-500 text-white"
               >+ Add</button>
             </div>
             <div className="space-y-2 sm:space-y-3">
+              {hiddenCount > 0 && (
+                <p className="text-[11px] text-zinc-500">{hiddenCount} product{hiddenCount === 1 ? "" : "s"} hidden — {hiddenCount === 1 ? "its store is" : "their stores are"} off.</p>
+              )}
               {products.map((p, i) => {
+                if (!storesOn.includes(p.retailer)) return null;
                 const info = retailerInfo(p.retailer);
                 const field = info?.idField || "url";
                 const action = productAction(p);
@@ -297,7 +340,7 @@ export default function Settings() {
                       <div className="sm:col-span-2">
                         <label className="text-[10px] text-zinc-500 uppercase block mb-1">Store</label>
                         <select value={p.retailer} onChange={(e) => changeRetailer(i, e.target.value)} className={inputCls}>
-                          {RETAILERS.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+                          {visibleStores.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
                         </select>
                       </div>
                       <div className="sm:col-span-4">

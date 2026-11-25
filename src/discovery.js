@@ -7,7 +7,7 @@
 
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { resolve } from 'path';
-import { loadConfigFresh, getDiscoverySettings, getCheckoutSettings } from './config.js';
+import { loadConfigFresh, getDiscoverySettings, getCheckoutSettings, storeEnabled } from './config.js';
 import { getAdapter } from './retailers/index.js';
 import { newPage, leanPage } from './session.js';
 import { isBusy } from './checkout/index.js';
@@ -52,7 +52,7 @@ export async function discoverOnce() {
   discoveryState.running = true;
   const fresh = [];
 
-  for (const retailer of s.retailers || []) {
+  for (const retailer of (s.retailers || []).filter(r => storeEnabled(config, r))) {
     const adapter = getAdapter(retailer);
     if (!adapter?.search || isBusy(retailer)) continue;
     let page;

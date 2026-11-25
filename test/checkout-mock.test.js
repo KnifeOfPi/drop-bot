@@ -491,7 +491,8 @@ await test('Old config is upgraded in place: interval, hot window, modes kept/ad
   const changes = migrateConfigFile(old);
   expect(Array.isArray(changes) && changes.length >= 4, `changes: ${JSON.stringify(changes)}`);
   const c = yaml.load(readFileSync(old, 'utf8'));
-  expect(c.config_version === 3, 'version');
+  expect(c.config_version === 4, 'version');
+  expect(JSON.stringify(c.stores) === '["target","walmart","pokemon-center"]', `stores ${JSON.stringify(c.stores)}`);
   expect(c.monitor.interval_seconds === 60 && !('pc_queue_check_seconds' in c.monitor), `monitor ${JSON.stringify(c.monitor)}`);
   expect(c.monitor.watch_mode === 'lite' && c.monitor.daily_proxy_limit_mb === 500 && c.discovery.interval_minutes === 60, 'v3 data-saving defaults');
   expect(c.monitor.hot_windows?.[0]?.retailers?.[0] === 'walmart', 'hot window');

@@ -6,7 +6,13 @@
 # that copy holds your real settings and is what the dashboard edits (git ignores
 # it, so updates never overwrite your settings). Changes apply on the next pass.
 
-config_version: 3
+config_version: 4
+
+# ── Stores ────────────────────────────────────────────────────────────────
+# Stores the bot runs. A store that's off is never checked, searched or opened,
+# and the dashboard hides it. Turn stores on/off in Settings → Stores.
+#   target | best-buy | walmart | costco | sams-club | pokemon-center
+stores: [target, walmart, pokemon-center]
 
 # ── Discord webhooks ──────────────────────────────────────────────────────
 # Webhook URLs are secrets — put them in .env, NOT here (this file is committed):

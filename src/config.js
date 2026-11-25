@@ -85,6 +85,17 @@ export function loadConfigFresh() {
 
 export const RETAILERS = ['target', 'best-buy', 'walmart', 'costco', 'sams-club', 'pokemon-center'];
 
+/**
+ * Stores switched on in Settings (`stores:` in config). A store that's off is never
+ * checked, searched or opened, and the dashboard hides it. No `stores:` list = all on.
+ */
+export function enabledStores(cfg) {
+  const s = cfg?.stores;
+  if (!Array.isArray(s)) return new Set(RETAILERS);
+  return new Set(s.filter(r => RETAILERS.includes(r)));
+}
+export const storeEnabled = (cfg, retailer) => enabledStores(cfg).has(retailer);
+
 // URL-identified retailers: how to pull a stable id out of the product URL.
 const URL_ID = {
   walmart: /\/ip\/(?:[^/?#]+\/)?(\d+)/,
@@ -174,7 +185,7 @@ export function getCheckoutSettings(config) {
 }
 
 // ── One-time upgrade of settings written by the original (3-store) bot ────
-export const CONFIG_VERSION = 3;
+export const CONFIG_VERSION = 4;
 const WALMART_WEDNESDAY = {
   name: 'Walmart Wednesday drops', retailers: ['walmart'], days: ['wed'],
   start: '06:00', end: '18:00', timezone: 'America/New_York', interval_seconds: 10,
@@ -195,10 +206,18 @@ export function migrateConfigFile(path = CONFIG_PATH) {
   const changes = [];
   if (version < 2) migrateV1(cfg, changes);
   if (version < 3) migrateV2(cfg, changes);
+  if (version < 4) migrateV3(cfg, changes);
   cfg.config_version = CONFIG_VERSION;
   writeFileSync(path, yaml.dump(cfg, { lineWidth: 120, noRefs: true }));
   cachedConfig = null;
   return changes;
+}
+
+/** v3 → v4: per-store on/off switches. Start with Target, Walmart and Pokémon Center on. */
+function migrateV3(cfg, changes) {
+  if (Array.isArray(cfg.stores)) return;
+  cfg.stores = ['target', 'walmart', 'pokemon-center'];
+  changes.push('stores on: Target, Walmart, Pokémon Center — Best Buy, Costco and Sam\'s Club are off (turn them on in Settings → Stores)');
 }
 
 /** v2 → v3: data-saving defaults (light checks, slower discovery, daily proxy limit). */

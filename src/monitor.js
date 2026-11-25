@@ -13,9 +13,9 @@
 // an answer stop light-checking for 6 h. A daily proxy data limit pauses the
 // bot automatically (resumes the next day).
 
-import { loadConfigFresh, getMonitorSettings, getCheckoutSettings, productKey, productId, RETAILERS } from './config.js';
+import { loadConfigFresh, getMonitorSettings, getCheckoutSettings, productKey, productId, RETAILERS, storeEnabled } from './config.js';
 import { getAdapter } from './retailers/index.js';
-import { monitorPage, closeSession } from './session.js';
+import { monitorPage, closeSession, openSessions } from './session.js';
 import { onObserved, isBusy } from './checkout/index.js';
 import { sendDropAlert, sendHealthAlert } from './discord.js';
 import { liteCheck } from './lite.js';
@@ -111,6 +111,17 @@ async function retailerLoop(retailer) {
       health.active = false;
       health.errors = 0;
       await sleep(3000);
+      continue;
+    }
+    if (!storeEnabled(config, retailer)) {
+      // Store switched off in Settings: no checks, and close its browser if one is open.
+      if (health.active || openSessions().includes(retailer)) {
+        if (!isBusy(retailer)) await closeSession(retailer).catch(() => {});
+        console.log(`[monitor] ${retailer}: store is off — not checking`);
+      }
+      health.active = false;
+      health.errors = 0;
+      await sleep(5000);
       continue;
     }
     const settings = getMonitorSettings(config);

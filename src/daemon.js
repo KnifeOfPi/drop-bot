@@ -15,7 +15,7 @@ import { createServer } from 'http';
 import { readFileSync, writeFileSync } from 'fs';
 import yaml from 'js-yaml';
 import {
-  loadConfig, loadConfigFresh, CONFIG_PATH, webhooksFromEnv, WEBHOOK_KEYS, RETAILERS,
+  loadConfig, loadConfigFresh, CONFIG_PATH, webhooksFromEnv, WEBHOOK_KEYS, RETAILERS, enabledStores,
   productKey, productId, productAction, getMonitorSettings, getDiscoverySettings, parseListingPrice,
   getCheckoutSettings, migrateConfigFile, clearConfigCache,
 } from './config.js';
@@ -64,6 +64,7 @@ function send(res, code, body, headers = {}) {
 }
 
 async function readJson(req) {
+  if (req.jsonBody) return req.jsonBody; // already read (store on/off check)
   const chunks = [];
   for await (const chunk of req) chunks.push(chunk);
   const raw = Buffer.concat(chunks).toString();
@@ -88,7 +89,9 @@ function deepMerge(target, source) {
 function statusBody() {
   const cfg = loadConfigFresh() || {};
   const msettings = getMonitorSettings(cfg);
-  const products = (cfg.products || []).map(p => {
+  const on = enabledStores(cfg);
+  // Stores switched off in Settings are left out entirely (products, store rows, new listings).
+  const products = (cfg.products || []).filter(p => on.has(p.retailer)).map(p => {
     const key = productKey(p);
     const st = productState.get(key);
     return {
@@ -98,7 +101,7 @@ function statusBody() {
       last_checked: st?.last_checked || null, since: st?.since || null, error: st?.error, via: st?.via || null,
     };
   });
-  const active = new Set((cfg.products || []).map(p => p.retailer));
+  const active = new Set((cfg.products || []).filter(p => on.has(p.retailer)).map(p => p.retailer));
   return {
     running,
     pause: pauseStatus(cfg),
@@ -115,7 +118,8 @@ function statusBody() {
     proxy: { ...proxyStatus(), stores: getCheckoutSettings(cfg).proxy_stores ?? null },
     bandwidth: { ...bandwidthStatus(proxiedStoreSet(cfg)), limit_mb: getMonitorSettings(cfg).daily_proxy_limit_mb },
     login_sessions: liveSessions(),
-    discovery: { ...getDiscoverySettings(cfg), ...discoveryState, recent: recentDiscoveries(25) },
+    discovery: { ...getDiscoverySettings(cfg), ...discoveryState, recent: recentDiscoveries(50).filter(l => on.has(l.retailer)).slice(0, 25) },
+    stores: { enabled: RETAILERS.filter(r => on.has(r)), all: RETAILERS.map(r => ({ retailer: r, name: getAdapter(r).name })) },
   };
 }
 
@@ -126,6 +130,10 @@ function statusBody() {
 // you start yourself, and the store's browser closes again afterwards.
 const NEEDS_BROWSER = new Set([
   '/checkout/test', '/flow/start', '/drawing/enter', '/discovery/run',
+]);
+
+const STORE_ACTIONS = new Set([
+  '/checkout/test', '/flow/start', '/drawing/enter', '/accounts/login', '/accounts/check', '/discovery/watch',
 ]);
 
 async function route(req, res, url) {
@@ -162,6 +170,15 @@ async function route(req, res, url) {
   }
 
   if (path === '/status' && method === 'GET') return send(res, 200, statusBody());
+
+  // Store actions on a store that's switched off are refused (nothing opens its browser).
+  if (method === 'POST' && STORE_ACTIONS.has(path)) {
+    const body = await readJson(req);
+    req.jsonBody = body;
+    if (body.retailer && !enabledStores(loadConfigFresh()).has(body.retailer)) {
+      return send(res, 409, { error: `${getAdapter(body.retailer)?.name || body.retailer} is switched off — turn it on in Settings → Stores first.` });
+    }
+  }
 
   if (path === '/config' && method === 'GET') {
     const current = yaml.load(readFileSync(CONFIG_PATH, 'utf8')) || {};

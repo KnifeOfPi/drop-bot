@@ -172,7 +172,11 @@ export interface DaemonStatus {
   login_sessions?: LoginSession[];
   proxy?: ProxyStatus;
   bandwidth?: BandwidthStatus;
+  stores?: { enabled: string[]; all: Array<{ retailer: string; name: string }> };
 }
+
+/** Stores switched on in Settings (older bots without the switch: all on). */
+export const enabledStoreIds = (s?: DaemonStatus | null) => s?.stores?.enabled ?? RETAILERS.map((r) => r.id);
 
 export const RETAILERS: Array<{ id: string; name: string; emoji: string; color: string; idField: "tcin" | "sku" | "url"; idLabel: string }> = [
   { id: "target", name: "Target", emoji: "🎯", color: "bg-red-600", idField: "tcin", idLabel: "TCIN" },

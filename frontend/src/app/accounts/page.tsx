@@ -8,7 +8,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { type DaemonStatus, RETAILERS, ago, postJson, fmtBytes } from "@/lib/types";
+import { type DaemonStatus, RETAILERS as ALL_RETAILERS, enabledStoreIds, ago, postJson, fmtBytes } from "@/lib/types";
 
 export default function Accounts() {
   const router = useRouter();
@@ -99,7 +99,9 @@ export default function Accounts() {
 
   const proxy = status?.proxy;
   const bw = status?.bandwidth;
-  const proxyStores = proxy?.stores ?? RETAILERS.map((r) => r.id);
+  // Only stores switched on in Settings appear here.
+  const RETAILERS = ALL_RETAILERS.filter((r) => enabledStoreIds(status).includes(r.id));
+  const proxyStores = proxy?.stores ?? ALL_RETAILERS.map((r) => r.id);
   const accounts = status?.accounts || {};
   const watched = new Set((status?.products || []).map((p) => p.retailer));
   const openSessions = status?.login_sessions || [];
@@ -164,7 +166,7 @@ export default function Accounts() {
                       key={r.id}
                       onClick={() => {
                         const next = on ? proxyStores.filter((x) => x !== r.id) : [...proxyStores, r.id];
-                        setProxyStores(next.length === RETAILERS.length ? null : next);
+                        setProxyStores(next.length === ALL_RETAILERS.length ? null : next);
                       }}
                       className={`px-2 py-1 rounded-xl text-[10px] sm:text-xs ${on ? "bg-blue-700 text-white" : "bg-zinc-800 text-zinc-500"}`}
                     >{r.emoji} {r.name}</button>
