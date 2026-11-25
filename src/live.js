@@ -13,6 +13,7 @@ import { loadConfigFresh, getCheckoutSettings } from './config.js';
 
 const loginSessions = new Map(); // id -> { id, retailer, page, started, expires, timer }
 const heldMouse = new Map();      // page -> auto-release timer while the mouse is held down
+const heldSince = new Map();      // page -> when the current hold started (for the log)
 const LOGIN_MINUTES = 15;
 
 function sessionFor(id) {
@@ -123,14 +124,23 @@ export async function liveInput(id, a) {
       if (heldMouse.has(page)) { clearTimeout(heldMouse.get(page)); await page.mouse.up().catch(() => {}); }
       await page.mouse.move(x, y);
       await page.mouse.down();
+      heldSince.set(page, Date.now());
+      console.log(`[live] ${s.retailer}: hold started at ${Math.round(x)},${Math.round(y)} (${s.kind})`);
       // Never leave the mouse stuck down if the release never arrives.
-      heldMouse.set(page, setTimeout(() => { heldMouse.delete(page); page.mouse.up().catch(() => {}); }, 30_000));
+      heldMouse.set(page, setTimeout(() => {
+        heldMouse.delete(page); heldSince.delete(page);
+        page.mouse.up().catch(() => {});
+        console.log(`[live] ${s.retailer}: hold auto-released after 30 s (no release arrived)`);
+      }, 30_000));
       return { ok: true }; // no settle delay — keep the hold timing accurate
     }
     case 'up': {
       clearTimeout(heldMouse.get(page));
       heldMouse.delete(page);
       await page.mouse.up();
+      const since = heldSince.get(page);
+      heldSince.delete(page);
+      console.log(`[live] ${s.retailer}: hold released after ${since ? ((Date.now() - since) / 1000).toFixed(1) + ' s' : '? (no hold was active)'}`);
       break;
     }
     case 'type':
