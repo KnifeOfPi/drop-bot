@@ -138,10 +138,14 @@ export async function waitOutQueue(page, { minutes = 30, log = () => {}, onEnter
 }
 
 export async function captchaPresent(page) {
-  return page.evaluate(() =>
-    !!document.querySelector('iframe[src*="captcha"], iframe[src*="datadome"], iframe[src*="hcaptcha"], [id*="px-captcha"], [id*="captcha"]') ||
-    /verify you are (a )?human|press (&|and) hold|are you a robot|robot or human/i.test(document.body?.innerText || '')
-  ).catch(() => false);
+  return page.evaluate(() => {
+    // Only count captcha elements a person would actually see (pages often carry hidden ones).
+    const visible = (el) => { const r = el.getBoundingClientRect(); const cs = getComputedStyle(el);
+      return r.width > 20 && r.height > 20 && cs.visibility !== 'hidden' && cs.display !== 'none' && cs.opacity !== '0'; };
+    const els = document.querySelectorAll('iframe[src*="captcha"], iframe[src*="datadome"], iframe[src*="hcaptcha"], [id*="px-captcha"], [id*="captcha"]');
+    return [...els].some(visible) ||
+      /verify you are (a )?human|press (&|and) hold|are you a robot|robot or human/i.test(document.body?.innerText || '');
+  }).catch(() => false);
 }
 
 /** First visible price on the page. */

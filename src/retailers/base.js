@@ -45,8 +45,18 @@ export const COMMON = {
 };
 
 async function gotoProduct(r, page, product, ctx) {
-  await page.goto(r.productUrl(product), { waitUntil: 'domcontentloaded', timeout: ctx.timeout * 3 });
+  const res = await page.goto(r.productUrl(product), { waitUntil: 'domcontentloaded', timeout: ctx.timeout * 3 });
   await page.waitForTimeout(1200);
+  return res;
+}
+
+const NOT_FOUND_TEXT = /page not found|can['’]t find (that|this|the) page|couldn['’]t find (that|this|the) page|page (you|you're) (were )?looking for|no longer available|item not found|product not found|\b404\b/i;
+
+/** The product link/ID leads nowhere (404 or a "page not found" page). */
+async function productNotFound(page, res) {
+  if (res && res.status() === 404) return true;
+  const head = await page.evaluate(() => `${document.title} ${document.querySelector('h1')?.innerText || ''}`).catch(() => '');
+  return NOT_FOUND_TEXT.test(head);
 }
 
 export function defineRetailer(spec) {
@@ -70,8 +80,11 @@ export function defineRetailer(spec) {
   };
 
   r.checkPage ??= async function (page, product, ctx) {
-    await gotoProduct(this, page, product, ctx);
+    const res = await gotoProduct(this, page, product, ctx);
     if (await inQueue(page)) return { status: 'queue', price: 'N/A', title: product.label };
+    if (await productNotFound(page, res)) {
+      return { status: 'error', price: 'N/A', title: product.label, error: 'product not found — check the link / ID in Settings' };
+    }
     if (await captchaPresent(page)) return { status: 'blocked', price: 'N/A', title: product.label, error: 'captcha on product page' };
     const status = await waitForAny(page, {
       drawing_entered: () => textMatches(page, s.drawingEntered),
