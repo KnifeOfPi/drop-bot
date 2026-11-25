@@ -13,7 +13,7 @@
 
 import {
   CheckoutError, clickFirst, findFirst, waitForAny, textMatches, bodyText,
-  inQueue, captchaPresent, waitOutQueue, trySolveCaptcha, walkCheckout,
+  inQueue, captchaPresent, waitOutQueue, handOffIfCaptcha, walkCheckout,
   readPrice, readTitle, collectListings,
 } from '../checkout/helpers.js';
 
@@ -85,7 +85,7 @@ export function defineRetailer(spec) {
   r.enterDrawing ??= async function (page, product, ctx) {
     await gotoProduct(this, page, product, ctx);
     await waitOutQueue(page, { minutes: ctx.settings.queue_wait_minutes, log: ctx.log });
-    await trySolveCaptcha(page, ctx.log);
+    await handOffIfCaptcha(page, ctx.log);
     if (await textMatches(page, s.drawingEntered)) return { already: true };
     if (this.loggedOutUrl.test(page.url())) throw new CheckoutError('not_logged_in', `${this.name} session expired — run \`npm run login -- ${this.id}\``);
     const btn = await findFirst(page, s.drawing, { timeout: ctx.timeout });
@@ -105,7 +105,7 @@ export function defineRetailer(spec) {
   r.addToCart ??= async function (page, product, ctx) {
     await gotoProduct(this, page, product, ctx);
     await waitOutQueue(page, { minutes: ctx.settings.queue_wait_minutes, log: ctx.log, onEnter: ctx.onQueueEnter, onExit: ctx.onQueueExit });
-    await trySolveCaptcha(page, ctx.log);
+    await handOffIfCaptcha(page, ctx.log);
     const state = await waitForAny(page, {
       atc: async () => !!(await findFirst(page, s.atc, { timeout: 1 })),
       oos: async () => (s.unavailable && (await page.locator(s.unavailable).count()) > 0) || await textMatches(page, s.oos),
@@ -129,7 +129,7 @@ export function defineRetailer(spec) {
     await page.goto(this.cartUrl, { waitUntil: 'domcontentloaded', timeout: ctx.timeout * 3 });
     await page.waitForTimeout(1200);
     await waitOutQueue(page, { minutes: ctx.settings.queue_wait_minutes, log: ctx.log, onEnter: ctx.onQueueEnter, onExit: ctx.onQueueExit });
-    await trySolveCaptcha(page, ctx.log);
+    await handOffIfCaptcha(page, ctx.log);
     if (this.loggedOutUrl.test(page.url())) throw new CheckoutError('not_logged_in', `${this.name} session expired — run \`npm run login -- ${this.id}\``);
     if (await textMatches(page, /your (shopping )?cart is empty|cart is empty/i)) throw new CheckoutError('step_failed', 'cart is empty');
     await clickFirst(page, s.checkout, { timeout: ctx.timeout, step: 'checkout' });

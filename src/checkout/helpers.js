@@ -4,7 +4,6 @@
 // in data/screenshots/ shows what the page looked like.
 
 import { join } from 'path';
-import { homedir } from 'os';
 import { SCREENSHOT_DIR } from './ledger.js';
 
 export class CheckoutError extends Error {
@@ -167,7 +166,7 @@ export async function readTitle(page) {
  */
 export async function walkCheckout(page, ctx, { placeOrder, cont, cvv = [], maxSteps = 7 }) {
   for (let stepNo = 0; stepNo < maxSteps; stepNo++) {
-    await trySolveCaptcha(page, ctx.log);
+    await handOffIfCaptcha(page, ctx.log);
     if (cvv.length && await fillIfPresent(page, cvv, ctx.cvv, { timeout: 1000 })) ctx.log('entered CVV');
     const place = await findFirst(page, placeOrder, { timeout: 2500 });
     if (place) return place;
@@ -215,22 +214,14 @@ export async function collectListings(page, linkRe) {
   }, { source: linkRe.source, flags: linkRe.flags });
 }
 
-/** If the Hermes stealth lib is installed and exposes a captcha solver, try it. */
-export async function trySolveCaptcha(page, log = () => {}) {
+/**
+ * A captcha / bot check is in the way: stop and hand the tab to a person (Live view).
+ * The bot never tries to solve or get around a store's bot checks itself.
+ */
+export async function handOffIfCaptcha(page, log = () => {}) {
   if (!(await captchaPresent(page))) return false;
-  log('captcha detected — attempting solve');
-  try {
-    if (process.env.DROPBOT_NO_CAPTCHA_SOLVER) throw new Error('disabled');
-    const lib = await import(join(homedir(), '.hermes/skills/web-automation/stealth-browser/scripts/lib.mjs'));
-    if (typeof lib.solveCaptchaIfPresent === 'function') {
-      await lib.solveCaptchaIfPresent(page);
-      await page.waitForTimeout(2000);
-      return true;
-    }
-  } catch (e) {
-    log(`captcha solver unavailable: ${e.message.split('\n')[0]}`);
-  }
-  throw new CheckoutError('captcha', 'captcha blocked checkout and no solver succeeded');
+  log('bot check on the page — handing off to you (Live view)');
+  throw new CheckoutError('captcha', 'the store showed a bot check — finish it in Live view');
 }
 
 export async function screenshot(page, name) {

@@ -3,7 +3,7 @@
 // cart reliably when logged in). Target often asks for CVV — TARGET_CVV in .env.
 
 import { defineRetailer } from './base.js';
-import { CheckoutError, clickFirst, findFirst, fillIfPresent, waitForAny, textMatches, bodyText, waitOutQueue, trySolveCaptcha } from '../checkout/helpers.js';
+import { CheckoutError, clickFirst, findFirst, fillIfPresent, waitForAny, textMatches, bodyText, waitOutQueue, handOffIfCaptcha } from '../checkout/helpers.js';
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { resolve } from 'path';
 import { DATA_DIR } from '../checkout/ledger.js';
@@ -211,7 +211,7 @@ export default defineRetailer({
   async addToCart(page, product, ctx) {
     await page.goto(this.productUrl(product), { waitUntil: 'domcontentloaded', timeout: ctx.timeout * 2 });
     await waitOutQueue(page, { minutes: ctx.settings.queue_wait_minutes, log: ctx.log, onEnter: ctx.onQueueEnter, onExit: ctx.onQueueExit });
-    await trySolveCaptcha(page, ctx.log);
+    await handOffIfCaptcha(page, ctx.log);
     const state = await waitForAny(page, {
       atc: async () => !!(await findFirst(page, ATC, { timeout: 1 })),
       oos: () => textMatches(page, /\b(sold out|out of stock|notify me when it's back)\b/i),

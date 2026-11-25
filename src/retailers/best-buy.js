@@ -3,7 +3,7 @@
 // usually asks for CVV — BESTBUY_CVV in .env.
 
 import { defineRetailer } from './base.js';
-import { CheckoutError, clickFirst, findFirst, fillIfPresent, waitForAny, textMatches, bodyText, trySolveCaptcha } from '../checkout/helpers.js';
+import { CheckoutError, clickFirst, findFirst, fillIfPresent, waitForAny, textMatches, bodyText, handOffIfCaptcha } from '../checkout/helpers.js';
 
 const ATC = [
   'button.add-to-cart-button[data-button-state="ADD_TO_CART"]',
@@ -67,7 +67,7 @@ export default defineRetailer({
 
   async addToCart(page, product, ctx) {
     await page.goto(this.productUrl(product), { waitUntil: 'domcontentloaded', timeout: ctx.timeout * 2 });
-    await trySolveCaptcha(page, ctx.log);
+    await handOffIfCaptcha(page, ctx.log);
     const state = await waitForAny(page, {
       atc: async () => !!(await findFirst(page, ATC, { timeout: 1 })),
       oos: async () => (await page.locator(UNAVAILABLE).count()) > 0 || await textMatches(page, /\bsold out\b|coming soon/i),

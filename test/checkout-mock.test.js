@@ -18,7 +18,6 @@ const TMP = mkdtempSync(join(tmpdir(), 'dropbot-test-'));
 const CONFIG = join(TMP, 'config.yaml');
 process.env.DROPBOT_CONFIG = CONFIG;
 process.env.DROPBOT_DATA_DIR = join(TMP, 'data');
-process.env.DROPBOT_NO_CAPTCHA_SOLVER = '1';
 process.env.TARGET_CVV = '123';
 process.env.BESTBUY_CVV = '456';
 process.env.POKEMONCENTER_CVV = '789';
